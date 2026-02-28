@@ -49,6 +49,14 @@ export const api = {
     return res.json();
   },
 
+  searchUsers: async (query) => {
+    const res = await fetch(`${API_BASE}/users/search?q=${encodeURIComponent(query)}`, {
+      headers: { ...getAuthHeader() },
+    });
+    if (!res.ok) throw new Error('Failed to search users');
+    return res.json();
+  },
+
   // Ledgers
   getLedgers: async () => {
     const res = await fetch(`${API_BASE}/ledgers`, {
