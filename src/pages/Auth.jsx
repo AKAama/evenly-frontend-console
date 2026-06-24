@@ -106,8 +106,7 @@ export function LoginPage({ onLogin, onSwitchToRegister }) {
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      const data = await api.login(values.email, values.password);
-      localStorage.setItem('token', data.access_token);
+      await api.login(values.email, values.password);
       message.success('登录成功');
       onLogin();
     } catch (err) {
@@ -123,7 +122,7 @@ export function LoginPage({ onLogin, onSwitchToRegister }) {
         <RiveAnimation />
       </div>
       <div style={styles.rightPanel}>
-        <Card bordered={false} title="登录" style={styles.card}>
+        <Card variant="borderless" title="登录" style={styles.card}>
           <Form form={form} onFinish={onFinish} layout="vertical">
             <Form.Item
               name="email"
@@ -186,8 +185,7 @@ export function RegisterPage({ onRegister, onSwitchToLogin }) {
     setLoading(true);
     try {
       const avatar = values.avatar?.[0]?.originFileObj;
-      const data = await api.register(values.email, values.password, values.displayName, values.code, avatar);
-      localStorage.setItem('token', data.access_token);
+      await api.register(values.email, values.password, values.displayName, values.code, avatar);
       message.success('注册成功');
       onRegister();
     } catch (err) {
@@ -205,7 +203,7 @@ export function RegisterPage({ onRegister, onSwitchToLogin }) {
         <div style={styles.leftSubtitle}>创建一个账号，开始您的旅程</div>
       </div>
       <div style={styles.rightPanel}>
-        <Card bordered={false} title="注册" style={styles.card}>
+        <Card variant="borderless" title="注册" style={styles.card}>
           <Form form={form} onFinish={onFinish} layout="vertical">
             <Form.Item
               name="email"

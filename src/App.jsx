@@ -1,16 +1,28 @@
 import { useState, useEffect } from 'react';
 import { LoginPage, RegisterPage } from './pages/Auth';
 import { Dashboard } from './pages/Dashboard';
+import { api } from './api';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      setIsAuthenticated(true);
-    }
+    api.setUnauthorizedHandler(() => {
+      setIsAuthenticated(false);
+    });
+
+    api.getMe()
+      .then(() => {
+        setIsAuthenticated(true);
+      })
+      .catch(() => {
+        setIsAuthenticated(false);
+      })
+      .finally(() => {
+        setIsCheckingSession(false);
+      });
   }, []);
 
   const handleLogin = () => {
@@ -21,10 +33,17 @@ function App() {
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } finally {
     setIsAuthenticated(false);
+    }
   };
+
+  if (isCheckingSession) {
+    return null;
+  }
 
   if (isAuthenticated) {
     return <Dashboard onLogout={handleLogout} />;

@@ -4,30 +4,29 @@
   "private": true,
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@rc-component/picker": "^1.10.0",
     "@rive-app/react-canvas": "^4.24.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
+    "@vitejs/plugin-react": "^5.0.0",
     "antd": "^6.3.1",
     "dayjs": "^1.11.19",
     "html2canvas": "^1.4.1",
+    "jsdom": "^27.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
+    "vite": "^7.3.5",
+    "vitest": "^4.0.0"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "prestart": "node scripts/check-port.js",
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "preview": "vite preview"
   },
   "browserslist": {
     "production": [

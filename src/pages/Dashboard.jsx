@@ -336,6 +336,7 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
   const [members, setMembers] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [settlements, setSettlements] = useState([]);
+  const [settlementHistory, setSettlementHistory] = useState([]);
   const [activeTab, setActiveTab] = useState('expenses');
   const [currentUser, setCurrentUser] = useState(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
@@ -359,14 +360,17 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
       if (membersData.length === 0) {
         setExpenses([]);
         setSettlements([]);
+        setSettlementHistory([]);
       } else {
         // 并行获取 expenses 和 settlements
-        const [expensesData, settlementsData] = await Promise.all([
+        const [expensesData, settlementsData, settlementHistoryData] = await Promise.all([
           api.getExpenses(ledger.id),
           api.getSettlements(ledger.id),
+          api.getSettlementHistory(ledger.id),
         ]);
         setExpenses(expensesData);
         setSettlements(settlementsData);
+        setSettlementHistory(settlementHistoryData);
       }
     } catch (err) {
       console.error('Failed to load ledger data:', err);
@@ -376,6 +380,7 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
         setMembers([]);
         setExpenses([]);
         setSettlements([]);
+        setSettlementHistory([]);
       } else {
         message.error(err.message);
       }
@@ -390,14 +395,14 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
 
   const handleConfirmExpense = async (expenseId, status) => {
     try {
-      await api.confirmExpense(expenseId, status);
+      const updatedExpense = await api.confirmExpense(expenseId, status);
       message.success(status === 'confirmed' ? '已确认' : '已拒绝');
       // 立即更新本地状态，让按钮立即消失，同时添加确认记录
       setExpenses(prev => prev.map(exp => {
         if (exp.id === expenseId) {
           return {
             ...exp,
-            status: status === 'confirmed' ? 'confirmed' : 'rejected',
+            status: updatedExpense.status,
             confirmations: [
               ...(exp.confirmations || []),
               { user_id: currentUser?.id, status: status }
@@ -542,6 +547,25 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
       key: 'amount',
       render: (v) => <span style={{ color: '#52c41a', fontWeight: 'bold' }}>¥{v}</span>
     },
+  ];
+
+  const settlementHistoryColumns = [
+    {
+      title: '付款人',
+      key: 'from',
+      render: (_, r) => r.from_user?.display_name || r.from_user?.email || '-'
+    },
+    {
+      title: '收款人',
+      key: 'to',
+      render: (_, r) => r.to_user?.display_name || r.to_user?.email || '-'
+    },
+    {
+      title: '金额',
+      dataIndex: 'amount',
+      key: 'amount',
+      render: (v) => <span style={{ color: '#52c41a', fontWeight: 'bold' }}>¥{v}</span>
+    },
     { title: '日期', dataIndex: 'settled_at', key: 'date', render: (v) => dayjs(v).format('YYYY-MM-DD') },
   ];
 
@@ -564,13 +588,14 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
             <Button icon={<SwapOutlined />} onClick={() => setCreateSettlementOpen(true)}>添加结算</Button>
           </Space>
         }>
-          成员 {members.length} | 支出 {expenses.length} | 结算 {settlements.length}
+          成员 {members.length} | 支出 {expenses.length} | 结算建议 {settlements.length}
         </Card>
 
         <Tabs activeKey={activeTab} onChange={setActiveTab} style={{ marginTop: '16px' }} items={[
           { key: 'expenses', label: `支出 (${expenses.length})`, children: <Table columns={expenseColumns} dataSource={expenses} rowKey="id" loading={loading} pagination={false} /> },
           { key: 'members', label: `成员 (${members.length})`, children: <Table columns={memberColumns} dataSource={members} rowKey={(row) => row.id || row.user_id} loading={loading} pagination={false} /> },
-          { key: 'settlements', label: `结算 (${settlements.length})`, children: <Table columns={settlementColumns} dataSource={settlements} rowKey="id" loading={loading} pagination={false} /> },
+          { key: 'settlements', label: `结算建议 (${settlements.length})`, children: <Table columns={settlementColumns} dataSource={settlements} rowKey={(row) => `${row.from_user_id}-${row.to_user_id}-${row.amount}`} loading={loading} pagination={false} /> },
+          { key: 'settlementHistory', label: `结算历史 (${settlementHistory.length})`, children: <Table columns={settlementHistoryColumns} dataSource={settlementHistory} rowKey="id" loading={loading} pagination={false} /> },
         ]} />
       </Card>
 
@@ -617,7 +642,15 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [addingId, setAddingId] = useState(null);
+  const [addedIds, setAddedIds] = useState([]);
   const [addingTemporary, setAddingTemporary] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setAddingId(null);
+      setAddedIds([]);
+    }
+  }, [open]);
 
   const handleSearch = async () => {
     if (!search.trim()) return;
@@ -636,10 +669,12 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
     setAddingId(userId);
     try {
       await api.addMember(ledgerId, userId, '');
+      setAddedIds(prev => [...new Set([...prev, userId])]);
       message.success('添加成功');
       onSuccess();
     } catch (err) {
       message.error(err.message);
+    } finally {
       setAddingId(null);
     }
   };
@@ -676,7 +711,7 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
       <List
         dataSource={results}
         renderItem={(user) => {
-          const isAdded = existingIds.includes(user.id);
+          const isAdded = existingIds.includes(user.id) || addedIds.includes(user.id);
           return (
             <List.Item actions={[
               <Button
@@ -713,17 +748,29 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
   const amount = Form.useWatch('amount', form);
   const membersList = useMemo(() => (members || []).filter(m => m.user_id), [members]);
 
+  const buildEqualSplits = useCallback((value) => {
+    if (!value || membersList.length === 0) return [];
+    const totalCents = Math.round(Number(value) * 100);
+    const baseCents = Math.floor(totalCents / membersList.length);
+    let remainder = totalCents - baseCents * membersList.length;
+
+    return membersList.map((m) => {
+      const extraCent = remainder > 0 ? 1 : 0;
+      const cents = baseCents + extraCent;
+      remainder -= extraCent;
+      return { userId: m.user_id, amount: cents / 100 };
+    });
+  }, [membersList]);
+
   useEffect(() => {
     if (amount && membersList.length > 0 && splitType === 'equal') {
-      const equal = (parseFloat(amount) / membersList.length).toFixed(2);
-      setSplits(membersList.map(m => ({ userId: m.user_id, amount: parseFloat(equal) })));
+      setSplits(buildEqualSplits(amount));
     }
-  }, [amount, membersList, splitType]);
+  }, [amount, membersList, splitType, buildEqualSplits]);
 
   const handleAmountChange = (value) => {
     if (splitType === 'equal' && value && membersList.length > 0) {
-      const equal = (parseFloat(value) / membersList.length).toFixed(2);
-      setSplits(membersList.map(m => ({ userId: m.user_id, amount: parseFloat(equal) })));
+      setSplits(buildEqualSplits(value));
     }
   };
 
@@ -736,7 +783,7 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
         total_amount: parseFloat(values.amount),
         payer_id: values.payer_id,
         expense_date: values.date.format('YYYY-MM-DD'),
-        description: values.description,
+        note: values.description,
         splits: splitType === 'equal' 
           ? splits.map(s => ({ user_id: s.userId, amount: s.amount }))
           : values.splits,
@@ -780,7 +827,6 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
         <Form.Item label="分摊方式">
           <Select value={splitType} onChange={setSplitType} style={{ width: 200 }}>
             <Select.Option value="equal">平均分摊</Select.Option>
-            <Select.Option value="percentage">按比例</Select.Option>
             <Select.Option value="exact">按金额</Select.Option>
           </Select>
         </Form.Item>

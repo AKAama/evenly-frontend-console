@@ -1,21 +1,81 @@
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.REACT_APP_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-const getAuthHeader = () => {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+let unauthorizedHandler = null;
+
+const parseError = async (res, fallback) => {
+  try {
+    const data = await res.json();
+    return data.detail || data.message || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const request = async (path, options = {}) => {
+  const headers = {
+    ...(options.headers || {}),
+  };
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
+
+  if (res.status === 401) {
+    unauthorizedHandler?.();
+  }
+
+  return res;
+};
+
+const jsonRequest = async (path, options = {}, fallback = 'Request failed') => {
+  const res = await request(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseError(res, fallback));
+  }
+
+  if (res.status === 204) return null;
+  return res.json();
+};
+
+const formRequest = async (path, formData, options = {}, fallback = 'Request failed') => {
+  const res = await request(path, {
+    ...options,
+    method: options.method || 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    throw new Error(await parseError(res, fallback));
+  }
+
+  return res.json();
 };
 
 export const api = {
+  setUnauthorizedHandler: (handler) => {
+    unauthorizedHandler = handler;
+  },
+
+  logout: async () => {
+    await request('/auth/logout', { method: 'POST' });
+  },
+
   // Auth
   sendVerificationCode: async (email) => {
-    const res = await fetch(`${API_BASE}/auth/send-verification?email=${encodeURIComponent(email)}`, {
-      method: 'POST',
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to send code');
-    }
-    return res.json();
+    return jsonRequest(
+      `/auth/send-verification?email=${encodeURIComponent(email)}`,
+      { method: 'POST' },
+      'Failed to send code'
+    );
   },
 
   register: async (email, password, displayName, code, avatar) => {
@@ -26,15 +86,7 @@ export const api = {
     if (displayName) formData.append('display_name', displayName);
     if (avatar) formData.append('avatar', avatar);
 
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: 'POST',
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Registration failed');
-    }
-    return res.json();
+    return formRequest('/auth/register', formData, {}, 'Registration failed');
   },
 
   login: async (email, password) => {
@@ -42,221 +94,149 @@ export const api = {
     formData.append('username', email);
     formData.append('password', password);
 
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      body: formData,
-    });
-    if (!res.ok) {
-      throw new Error('Invalid credentials');
-    }
-    return res.json();
+    return formRequest('/auth/login', formData, {}, 'Invalid credentials');
   },
 
   // User
   getMe: async () => {
-    const res = await fetch(`${API_BASE}/users/me`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to get user');
-    return res.json();
+    return jsonRequest('/users/me', {}, 'Failed to get user');
   },
 
   updateUser: async (data) => {
-    const res = await fetch(`${API_BASE}/users/me`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
-      },
-      body: JSON.stringify(data),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to update user');
-    }
-    return res.json();
+    return jsonRequest(
+      '/users/me',
+      { method: 'PUT', body: JSON.stringify(data) },
+      'Failed to update user'
+    );
   },
 
   changePassword: async (oldPassword, newPassword) => {
-    const res = await fetch(`${API_BASE}/users/me/password`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      '/users/me/password',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          old_password: oldPassword,
+          new_password: newPassword,
+        }),
       },
-      body: JSON.stringify({
-        old_password: oldPassword,
-        new_password: newPassword,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to change password');
-    }
-    return res.json();
+      'Failed to change password'
+    );
   },
 
   uploadAvatar: async (file) => {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${API_BASE}/users/me/avatar`, {
-      method: 'POST',
-      body: formData,
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to upload avatar');
-    }
-    return res.json();
+    return formRequest('/users/me/avatar', formData, {}, 'Failed to upload avatar');
   },
 
   searchUsers: async (query) => {
-    const res = await fetch(`${API_BASE}/users/search?q=${encodeURIComponent(query)}`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to search users');
-    return res.json();
+    return jsonRequest(`/users/search?q=${encodeURIComponent(query)}`, {}, 'Failed to search users');
   },
 
   // Ledgers
   getLedgers: async () => {
-    const res = await fetch(`${API_BASE}/ledgers`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to get ledgers');
-    return res.json();
+    return jsonRequest('/ledgers', {}, 'Failed to get ledgers');
   },
 
   createLedger: async (name, currency = 'CNY') => {
-    const res = await fetch(`${API_BASE}/ledgers`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      '/ledgers',
+      {
+        method: 'POST',
+        body: JSON.stringify({ name, currency }),
       },
-      body: JSON.stringify({ name, currency }),
-    });
-    if (!res.ok) throw new Error('Failed to create ledger');
-    return res.json();
+      'Failed to create ledger'
+    );
   },
 
   getLedger: async (id) => {
-    const res = await fetch(`${API_BASE}/ledgers/${id}`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to get ledger');
-    return res.json();
+    return jsonRequest(`/ledgers/${id}`, {}, 'Failed to get ledger');
   },
 
   deleteLedger: async (id) => {
-    const res = await fetch(`${API_BASE}/ledgers/${id}`, {
-      method: 'DELETE',
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to delete ledger');
+    return jsonRequest(`/ledgers/${id}`, { method: 'DELETE' }, 'Failed to delete ledger');
   },
 
   // Members
   addMember: async (ledgerId, userId, nickname) => {
-    const res = await fetch(`${API_BASE}/ledgers/${ledgerId}/members`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      `/ledgers/${ledgerId}/members`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId, nickname }),
       },
-      body: JSON.stringify({ user_id: userId, nickname }),
-    });
-    if (!res.ok) throw new Error('Failed to add member');
-    return res.json();
+      'Failed to add member'
+    );
   },
 
   addTemporaryMember: async (ledgerId, temporaryName) => {
-    const res = await fetch(`${API_BASE}/ledgers/${ledgerId}/members`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      `/ledgers/${ledgerId}/members`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          is_temporary: true,
+          temporary_name: temporaryName,
+        }),
       },
-      body: JSON.stringify({
-        is_temporary: true,
-        temporary_name: temporaryName,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || 'Failed to add temporary member');
-    }
-    return res.json();
+      'Failed to add temporary member'
+    );
   },
 
   getMembers: async (ledgerId) => {
-    const res = await fetch(`${API_BASE}/ledgers/${ledgerId}/members`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to get members');
-    return res.json();
+    return jsonRequest(`/ledgers/${ledgerId}/members`, {}, 'Failed to get members');
   },
 
   // Expenses
   getExpenses: async (ledgerId) => {
-    const res = await fetch(`${API_BASE}/expenses/ledgers/${ledgerId}/expenses`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to get expenses');
-    return res.json();
+    return jsonRequest(`/expenses/ledgers/${ledgerId}/expenses`, {}, 'Failed to get expenses');
   },
 
   createExpense: async (ledgerId, expense) => {
-    const res = await fetch(`${API_BASE}/expenses/ledgers/${ledgerId}/expenses`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      `/expenses/ledgers/${ledgerId}/expenses`,
+      {
+        method: 'POST',
+        body: JSON.stringify(expense),
       },
-      body: JSON.stringify(expense),
-    });
-    if (!res.ok) throw new Error('Failed to create expense');
-    return res.json();
+      'Failed to create expense'
+    );
   },
 
   confirmExpense: async (expenseId, status) => {
-    const res = await fetch(`${API_BASE}/expenses/${expenseId}/confirm`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      `/expenses/${expenseId}/confirm`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ status }),
       },
-      body: JSON.stringify({ status }),
-    });
-    if (!res.ok) throw new Error('Failed to confirm expense');
-    return res.json();
+      'Failed to confirm expense'
+    );
   },
 
   // Settlements
   getSettlements: async (ledgerId) => {
-    const res = await fetch(`${API_BASE}/ledgers/${ledgerId}/settlements`, {
-      headers: { ...getAuthHeader() },
-    });
-    if (!res.ok) throw new Error('Failed to get settlements');
-    return res.json();
+    return jsonRequest(`/ledgers/${ledgerId}/settlements`, {}, 'Failed to get settlements');
+  },
+
+  getSettlementHistory: async (ledgerId) => {
+    return jsonRequest(`/ledgers/${ledgerId}/settlements/history`, {}, 'Failed to get settlement history');
   },
 
   createSettlement: async (ledgerId, fromUserId, toUserId, amount, note) => {
-    const res = await fetch(`${API_BASE}/ledgers/${ledgerId}/settlements`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader(),
+    return jsonRequest(
+      `/ledgers/${ledgerId}/settlements`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          from_user_id: fromUserId,
+          to_user_id: toUserId,
+          amount,
+          note,
+        }),
       },
-      body: JSON.stringify({
-        from_user_id: fromUserId,
-        to_user_id: toUserId,
-        amount,
-        note,
-      }),
-    });
-    if (!res.ok) throw new Error('Failed to create settlement');
-    return res.json();
+      'Failed to create settlement'
+    );
   },
 };
