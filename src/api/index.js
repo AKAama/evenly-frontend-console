@@ -78,9 +78,10 @@ export const api = {
     );
   },
 
-  register: async (email, password, displayName, code, avatar) => {
+  register: async (email, username, password, displayName, code, avatar) => {
     const formData = new FormData();
     formData.append('email', email);
+    formData.append('username', username);
     formData.append('password', password);
     formData.append('code', code);
     if (displayName) formData.append('display_name', displayName);
@@ -89,9 +90,9 @@ export const api = {
     return formRequest('/auth/register', formData, {}, 'Registration failed');
   },
 
-  login: async (email, password) => {
+  login: async (identifier, password) => {
     const formData = new FormData();
-    formData.append('username', email);
+    formData.append('username', identifier);
     formData.append('password', password);
 
     return formRequest('/auth/login', formData, {}, 'Invalid credentials');

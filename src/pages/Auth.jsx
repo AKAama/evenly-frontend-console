@@ -106,7 +106,7 @@ export function LoginPage({ onLogin, onSwitchToRegister }) {
   const onFinish = async (values) => {
     setLoading(true);
     try {
-      await api.login(values.email, values.password);
+      await api.login(values.identifier, values.password);
       message.success('登录成功');
       onLogin();
     } catch (err) {
@@ -125,10 +125,10 @@ export function LoginPage({ onLogin, onSwitchToRegister }) {
         <Card variant="borderless" title="登录" style={styles.card}>
           <Form form={form} onFinish={onFinish} layout="vertical">
             <Form.Item
-              name="email"
-              rules={[{ required: true, message: '请输入邮箱' }, { type: 'email', message: '邮箱格式不正确' }]}
+              name="identifier"
+              rules={[{ required: true, message: '请输入邮箱或用户名' }]}
             >
-              <Input prefix={<MailOutlined style={{ color: '#999' }} />} placeholder="邮箱" size="large" style={styles.inputStyle} />
+              <Input prefix={<MailOutlined style={{ color: '#999' }} />} placeholder="邮箱或用户名" size="large" style={styles.inputStyle} />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
               <Input.Password prefix={<LockOutlined style={{ color: '#999' }} />} placeholder="密码" size="large" style={styles.inputStyle} />
@@ -185,7 +185,7 @@ export function RegisterPage({ onRegister, onSwitchToLogin }) {
     setLoading(true);
     try {
       const avatar = values.avatar?.[0]?.originFileObj;
-      await api.register(values.email, values.password, values.displayName, values.code, avatar);
+      await api.register(values.email, values.username, values.password, values.displayName, values.code, avatar);
       message.success('注册成功');
       onRegister();
     } catch (err) {
@@ -224,6 +224,12 @@ export function RegisterPage({ onRegister, onSwitchToLogin }) {
             </Form.Item>
             <Form.Item name="displayName" rules={[{ required: true, message: '请输入显示名称' }]}>
               <Input prefix={<UserOutlined style={{ color: '#999' }} />} placeholder="显示名称" size="large" style={styles.inputStyle} />
+            </Form.Item>
+            <Form.Item name="username" rules={[
+              { required: true, message: '请输入用户名' },
+              { pattern: /^[A-Za-z][A-Za-z0-9_]{2,29}$/, message: '3-30位，以英文开头，仅含英文、数字和下划线' },
+            ]}>
+              <Input prefix={<UserOutlined style={{ color: '#999' }} />} placeholder="用户名（用于登录）" size="large" style={styles.inputStyle} />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }, { min: 6, message: '密码至少6位' }]}>
               <Input.Password prefix={<LockOutlined style={{ color: '#999' }} />} placeholder="密码" size="large" style={styles.inputStyle} />
