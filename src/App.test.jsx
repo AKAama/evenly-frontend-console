@@ -13,5 +13,5 @@ vi.mock('@rive-app/react-canvas', () => ({
 test('renders login page for guests', async () => {
   render(<App />);
   expect(await screen.findByRole('button', { name: /login in/i })).toBeInTheDocument();
-  expect(screen.getByPlaceholderText('邮箱')).toBeInTheDocument();
+  expect(screen.getByPlaceholderText('邮箱或用户名')).toBeInTheDocument();
 });
