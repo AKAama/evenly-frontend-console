@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider, Badge } from 'antd';
-import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, UserDeleteOutlined } from '@ant-design/icons';
 import html2canvas from 'html2canvas';
 import dayjs from 'dayjs';
 
@@ -13,6 +13,7 @@ export function Dashboard({ onLogout }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [invitations, setInvitations] = useState([]);
   const [respondingInvitationId, setRespondingInvitationId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     loadHome();
@@ -20,8 +21,16 @@ export function Dashboard({ onLogout }) {
 
   const loadHome = async () => {
     setLoading(true);
-    await Promise.all([loadLedgers(), loadInvitations()]);
+    await Promise.all([loadLedgers(), loadInvitations(), loadCurrentUser()]);
     setLoading(false);
+  };
+
+  const loadCurrentUser = async () => {
+    try {
+      setCurrentUser(await api.getMe());
+    } catch (err) {
+      message.error(err.message);
+    }
   };
 
   const loadLedgers = async () => {
@@ -79,8 +88,26 @@ export function Dashboard({ onLogout }) {
     }
   };
 
+  const handleLeaveLedger = async (id) => {
+    try {
+      await api.leaveLedger(id);
+      message.success('已退出账本');
+      await loadLedgers();
+      if (selectedLedger?.id === id) setSelectedLedger(null);
+    } catch (err) {
+      message.error(err.message);
+    }
+  };
+
   if (selectedLedger) {
-    return <LedgerDetail ledger={selectedLedger} onBack={() => setSelectedLedger(null)} onRefresh={loadLedgers} />;
+    return (
+      <LedgerDetail
+        ledger={selectedLedger}
+        onBack={() => setSelectedLedger(null)}
+        onRefresh={loadLedgers}
+        onLeave={() => handleLeaveLedger(selectedLedger.id)}
+      />
+    );
   }
 
   return (
@@ -152,9 +179,15 @@ export function Dashboard({ onLogout }) {
                   />
                   <div style={styles.cardActions}>
                     <Button type="link" size="small">查看详情</Button>
-                    <Popconfirm title="确定删除这个账本吗？" onConfirm={(e) => { e?.stopPropagation(); handleDeleteLedger(ledger.id); }}>
-                      <Button type="link" danger size="small" onClick={(e) => e.stopPropagation()}>删除</Button>
-                    </Popconfirm>
+                    {currentUser?.id === ledger.owner_id ? (
+                      <Popconfirm title="确定删除这个账本吗？" onConfirm={(e) => { e?.stopPropagation(); handleDeleteLedger(ledger.id); }}>
+                        <Button type="link" danger size="small" onClick={(e) => e.stopPropagation()}>删除</Button>
+                      </Popconfirm>
+                    ) : (
+                      <Popconfirm title="确定退出这个账本吗？" onConfirm={(e) => { e?.stopPropagation(); handleLeaveLedger(ledger.id); }}>
+                        <Button type="link" danger size="small" onClick={(e) => e.stopPropagation()}>退出</Button>
+                      </Popconfirm>
+                    )}
                   </div>
                 </Card>
               </Col>
@@ -182,7 +215,7 @@ export function Dashboard({ onLogout }) {
         </Form>
       </Modal>
 
-      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} onAccountDeleted={onLogout} />
     </div>
   );
 }
@@ -200,8 +233,16 @@ function EmptyState({ onCreate }) {
 
 const getUserDisplayName = (user) => user?.display_name || user?.email || '用户';
 const getUserInitial = (user) => getUserDisplayName(user)[0]?.toUpperCase() || '?';
+const getMemberName = (member) => member?.nickname || member?.temporary_name || member?.user?.display_name || member?.user?.email || '成员';
+const getMemberId = (member) => member?.id || member?.user_id;
 
-function ProfileModal({ open, onClose }) {
+const expensePresets = [
+  { category: '餐饮', items: ['早餐', '午餐', '晚餐'] },
+  { category: '交通', items: ['打车', '高铁'] },
+  { category: '住宿', items: ['酒店', '民宿'] },
+];
+
+function ProfileModal({ open, onClose, onAccountDeleted }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('profile');
@@ -282,6 +323,19 @@ function ProfileModal({ open, onClose }) {
     } finally {
     }
     return false;
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      setSaving(true);
+      await api.deleteAccount();
+      message.success('账户已删除');
+      onAccountDeleted?.();
+    } catch (err) {
+      message.error(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -389,6 +443,17 @@ function ProfileModal({ open, onClose }) {
 	                    修改密码
 	                  </Button>
 	                )}
+	                <Divider />
+	                <Popconfirm
+	                  title="永久删除账户？"
+	                  description="个人资料、拥有的账本及关联记录将永久删除，且无法恢复。"
+	                  okText="永久删除"
+	                  cancelText="取消"
+	                  okButtonProps={{ danger: true, loading: saving }}
+	                  onConfirm={handleDeleteAccount}
+	                >
+	                  <Button danger icon={<DeleteOutlined />} block>删除账户</Button>
+	                </Popconfirm>
 	              </Form>
             ),
           },
@@ -403,7 +468,7 @@ function ProfileModal({ open, onClose }) {
   );
 }
 
-function LedgerDetail({ ledger, onBack, onRefresh }) {
+function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
   const [members, setMembers] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [settlements, setSettlements] = useState([]);
@@ -491,6 +556,27 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
     }
   };
 
+  const handleDeleteExpense = async (expenseId) => {
+    try {
+      await api.deleteExpense(expenseId);
+      message.success('账单已删除');
+      await loadData();
+    } catch (err) {
+      message.error(err.message);
+    }
+  };
+
+  const handleRemoveMember = async (memberId) => {
+    try {
+      await api.removeMember(ledger.id, memberId);
+      message.success('成员已移除');
+      await loadData();
+      onRefresh?.();
+    } catch (err) {
+      message.error(err.message);
+    }
+  };
+
   const handleExportImage = async () => {
     setExportOpen(true);
   };
@@ -568,17 +654,26 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
       title: '操作',
       key: 'action',
       render: (_, r) => {
-        // 如果不是待确认状态，不显示按钮
-        if (r.status !== 'pending') return '-';
-        // 检查当前用户是否已经确认过
         const splitUserIds = r.splits?.map(s => s.user_id) || [];
-        if (!splitUserIds.includes(currentUser?.id)) return '-';
         const hasConfirmed = r.confirmations?.some(c => c.user_id === currentUser?.id);
-        if (hasConfirmed) return '已确认';
+        const canRespond = r.status === 'pending' && splitUserIds.includes(currentUser?.id) && !hasConfirmed;
+        const canDelete = currentUser?.id === r.created_by || currentUser?.id === ledger.owner_id;
+
+        if (!canRespond && !canDelete) return hasConfirmed ? '已响应' : '-';
+
         return (
           <Space>
-            <Button type="link" size="small" onClick={() => handleConfirmExpense(r.id, 'confirmed')}>确认</Button>
-            <Button type="link" danger size="small" onClick={() => handleConfirmExpense(r.id, 'rejected')}>拒绝</Button>
+            {canRespond && (
+              <>
+                <Button type="link" size="small" onClick={() => handleConfirmExpense(r.id, 'confirmed')}>确认</Button>
+                <Button type="link" danger size="small" onClick={() => handleConfirmExpense(r.id, 'rejected')}>拒绝</Button>
+              </>
+            )}
+            {canDelete && (
+              <Popconfirm title="确定删除这笔账单吗？" onConfirm={() => handleDeleteExpense(r.id)}>
+                <Button type="text" danger size="small" icon={<DeleteOutlined />} aria-label="删除账单" />
+              </Popconfirm>
+            )}
           </Space>
         );
       },
@@ -606,6 +701,23 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
       render: (status) => status === 'pending'
         ? <Tag color="gold">等待接受</Tag>
         : <Tag color="green">已加入</Tag>,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_, r) => {
+        const canRemove = currentUser?.id === ledger.owner_id && r.user_id !== ledger.owner_id;
+        if (!canRemove) return '-';
+        return (
+          <Popconfirm
+            title={`确定移除 ${r.nickname || r.temporary_name || r.user?.display_name || '该成员'} 吗？`}
+            description="仍有未结清余额的成员无法移除。"
+            onConfirm={() => handleRemoveMember(r.id || r.user_id)}
+          >
+            <Button type="text" danger size="small" icon={<UserDeleteOutlined />} aria-label="移除成员" />
+          </Popconfirm>
+        );
+      },
     },
   ];
 
@@ -657,7 +769,7 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
             <span>{ledger.name}</span>
           </Space>
         }
-        extra={<Space><Button icon={<ExportOutlined />} onClick={handleExportImage}>导出</Button><Button icon={<ReloadOutlined />} onClick={loadData}>刷新</Button><Button onClick={onBack}>返回</Button></Space>}
+        extra={<Space><Button icon={<ExportOutlined />} onClick={handleExportImage}>导出</Button><Button icon={<ReloadOutlined />} onClick={loadData}>刷新</Button>{currentUser?.id !== ledger.owner_id && <Popconfirm title="确定退出这个账本吗？" description="存在未结清余额时无法退出。" onConfirm={onLeave}><Button danger>退出账本</Button></Popconfirm>}</Space>}
         style={styles.mainCard}
       >
         <Card type="inner" extra={
@@ -825,39 +937,102 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
   const [splitType, setSplitType] = useState('equal');
   const [splits, setSplits] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState([]);
 
   const amount = Form.useWatch('amount', form);
-  const membersList = useMemo(() => (members || []).filter(m => m.user_id), [members]);
+  const activeMembers = useMemo(
+    () => (members || []).filter((member) => !member.status || member.status === 'active'),
+    [members]
+  );
+  const registeredMembers = useMemo(() => activeMembers.filter((member) => member.user_id), [activeMembers]);
+  const selectedMembers = useMemo(
+    () => activeMembers.filter((member) => selectedMemberIds.includes(getMemberId(member))),
+    [activeMembers, selectedMemberIds]
+  );
 
-  const buildEqualSplits = useCallback((value) => {
-    if (!value || membersList.length === 0) return [];
+  const buildEqualSplits = useCallback((value, targetMembers = selectedMembers) => {
+    if (!value || targetMembers.length === 0) return [];
     const totalCents = Math.round(Number(value) * 100);
-    const baseCents = Math.floor(totalCents / membersList.length);
-    let remainder = totalCents - baseCents * membersList.length;
+    const baseCents = Math.floor(totalCents / targetMembers.length);
+    let remainder = totalCents - baseCents * targetMembers.length;
 
-    return membersList.map((m) => {
+    return targetMembers.map((member) => {
       const extraCent = remainder > 0 ? 1 : 0;
       const cents = baseCents + extraCent;
       remainder -= extraCent;
-      return { userId: m.user_id, amount: cents / 100 };
+      return { memberId: getMemberId(member), amount: cents / 100 };
     });
-  }, [membersList]);
+  }, [selectedMembers]);
 
   useEffect(() => {
-    if (amount && membersList.length > 0 && splitType === 'equal') {
+    if (!open) return;
+    const initialMemberIds = activeMembers.map(getMemberId).filter(Boolean);
+    setSelectedMemberIds(initialMemberIds);
+    setSplitType('equal');
+    setSplits([]);
+    form.resetFields();
+    form.setFieldsValue({ date: dayjs(), participants: initialMemberIds });
+  }, [open, activeMembers, form]);
+
+  useEffect(() => {
+    if (amount && selectedMembers.length > 0 && splitType === 'equal') {
       setSplits(buildEqualSplits(amount));
     }
-  }, [amount, membersList, splitType, buildEqualSplits]);
+  }, [amount, selectedMembers, splitType, buildEqualSplits]);
 
   const handleAmountChange = (value) => {
-    if (splitType === 'equal' && value && membersList.length > 0) {
+    if (splitType === 'equal' && value && selectedMembers.length > 0) {
       setSplits(buildEqualSplits(value));
     }
+  };
+
+  const handleParticipantsChange = (memberIds) => {
+    setSelectedMemberIds(memberIds);
+    const payerId = form.getFieldValue('payer_id');
+    const payerMember = registeredMembers.find((member) => member.user_id === payerId);
+    if (payerMember && !memberIds.includes(getMemberId(payerMember))) {
+      form.setFieldValue('payer_id', undefined);
+    }
+  };
+
+  const handlePayerChange = (userId) => {
+    const payerMember = registeredMembers.find((member) => member.user_id === userId);
+    const memberId = getMemberId(payerMember);
+    if (memberId && !selectedMemberIds.includes(memberId)) {
+      const nextIds = [...selectedMemberIds, memberId];
+      setSelectedMemberIds(nextIds);
+      form.setFieldValue('participants', nextIds);
+    }
+  };
+
+  const updateExactSplit = (memberId, value) => {
+    setSplits((current) => [
+      ...current.filter((split) => split.memberId !== memberId),
+      { memberId, amount: Number(value || 0) },
+    ]);
   };
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      if (selectedMembers.length === 0) {
+        message.error('请至少选择一位参与人');
+        return;
+      }
+
+      const payerMember = registeredMembers.find((member) => member.user_id === values.payer_id);
+      if (!payerMember || !selectedMemberIds.includes(getMemberId(payerMember))) {
+        message.error('付款人必须同时参与这笔账单');
+        return;
+      }
+
+      const resolvedSplits = splitType === 'equal' ? buildEqualSplits(values.amount) : splits;
+      const splitTotal = resolvedSplits.reduce((sum, split) => sum + Number(split.amount || 0), 0);
+      if (resolvedSplits.some((split) => split.amount <= 0) || Math.abs(splitTotal - Number(values.amount)) > 0.005) {
+        message.error('分摊金额必须大于 0，且总和需要等于账单金额');
+        return;
+      }
+
       setLoading(true);
       await api.createExpense(ledgerId, {
         title: values.title,
@@ -865,11 +1040,17 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
         payer_id: values.payer_id,
         expense_date: values.date.format('YYYY-MM-DD'),
         note: values.description,
-        splits: splitType === 'equal' 
-          ? splits.map(s => ({ user_id: s.userId, amount: s.amount }))
-          : values.splits,
+        splits: selectedMembers.map((member) => {
+          const split = resolvedSplits.find((item) => item.memberId === getMemberId(member));
+          return {
+            user_id: member.user_id || null,
+            member_id: getMemberId(member),
+            amount: split?.amount,
+          };
+        }),
       });
       message.success('添加成功');
+      form.resetFields();
       onSuccess();
     } catch (err) {
       if (err.errorFields) return;
@@ -880,8 +1061,20 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
   };
 
   return (
-    <Modal title="添加支出" open={open} onCancel={onCancel} onOk={handleSubmit} confirmLoading={loading} width={600}>
+    <Modal title="添加账单" open={open} onCancel={onCancel} onOk={handleSubmit} confirmLoading={loading} width={680} okText="添加账单">
       <Form form={form} layout="vertical">
+        <Form.Item label="快捷类别">
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            {expensePresets.map((group) => (
+              <Space key={group.category} wrap>
+                <Tag color="blue">{group.category}</Tag>
+                {group.items.map((item) => (
+                  <Button key={item} size="small" onClick={() => form.setFieldValue('title', item)}>{item}</Button>
+                ))}
+              </Space>
+            ))}
+          </Space>
+        </Form.Item>
         <Form.Item name="title" label="标题" rules={[{ required: true }]}>
           <Input placeholder="如：午餐" />
         </Form.Item>
@@ -898,28 +1091,54 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
           </Col>
         </Row>
         <Form.Item name="payer_id" label="付款人" rules={[{ required: true }]}>
-          <Select placeholder="选择付款人">
-            {membersList.map(m => <Select.Option key={m.user_id} value={m.user_id}>{m.nickname || m.user?.display_name || m.user?.email}</Select.Option>)}
+          <Select placeholder="选择付款人" onChange={handlePayerChange}>
+            {registeredMembers.map((member) => (
+              <Select.Option key={member.user_id} value={member.user_id}>{getMemberName(member)}</Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+        <Form.Item name="participants" label="参与人" rules={[{ required: true, message: '请至少选择一位参与人' }]}>
+          <Select mode="multiple" placeholder="选择参与人" value={selectedMemberIds} onChange={handleParticipantsChange} optionFilterProp="label">
+            {activeMembers.map((member) => (
+              <Select.Option key={getMemberId(member)} value={getMemberId(member)} label={getMemberName(member)}>
+                <Space>
+                  <Avatar size={24} src={member.user?.avatar_url}>{getMemberName(member)[0]}</Avatar>
+                  <span>{getMemberName(member)}</span>
+                  {member.is_temporary && <Tag>临时</Tag>}
+                </Space>
+              </Select.Option>
+            ))}
           </Select>
         </Form.Item>
         <Form.Item name="description" label="说明">
           <Input.TextArea rows={2} />
         </Form.Item>
         <Form.Item label="分摊方式">
-          <Select value={splitType} onChange={setSplitType} style={{ width: 200 }}>
+          <Select
+            value={splitType}
+            onChange={(value) => {
+              setSplitType(value);
+              if (value === 'exact') setSplits(buildEqualSplits(amount));
+            }}
+            style={{ width: 200 }}
+          >
             <Select.Option value="equal">平均分摊</Select.Option>
             <Select.Option value="exact">按金额</Select.Option>
           </Select>
         </Form.Item>
         {splitType !== 'equal' && (
           <Form.Item label="分摊明细">
-            {membersList.map((m, idx) => (
-              <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ width: 120 }}>{m.nickname || m.user?.display_name || m.user?.email}</span>
-                <Form.Item noStyle name={['splits', idx, 'amount']} initialValue={0}>
-                  <InputNumber min={0} step={0.01} prefix="¥" style={{ width: 120 }} />
-                </Form.Item>
-                <Form.Item noStyle name={['splits', idx, 'user_id']} hidden initialValue={m.user_id} />
+            {selectedMembers.map((member) => (
+              <div key={getMemberId(member)} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <span style={{ flex: 1 }}>{getMemberName(member)}</span>
+                <InputNumber
+                  min={0.01}
+                  step={0.01}
+                  prefix="¥"
+                  style={{ width: 150 }}
+                  value={splits.find((split) => split.memberId === getMemberId(member))?.amount}
+                  onChange={(value) => updateExactSplit(getMemberId(member), value)}
+                />
               </div>
             ))}
           </Form.Item>

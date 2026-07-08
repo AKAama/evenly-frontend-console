@@ -131,6 +131,10 @@ export const api = {
     return formRequest('/users/me/avatar', formData, {}, 'Failed to upload avatar');
   },
 
+  deleteAccount: async () => {
+    return jsonRequest('/users/me', { method: 'DELETE' }, 'Failed to delete account');
+  },
+
   searchUsers: async (query) => {
     return jsonRequest(`/users/search?q=${encodeURIComponent(query)}`, {}, 'Failed to search users');
   },
@@ -157,6 +161,10 @@ export const api = {
 
   deleteLedger: async (id) => {
     return jsonRequest(`/ledgers/${id}`, { method: 'DELETE' }, 'Failed to delete ledger');
+  },
+
+  leaveLedger: async (id) => {
+    return jsonRequest(`/ledgers/${id}/members/me`, { method: 'DELETE' }, 'Failed to leave ledger');
   },
 
   getPendingInvitations: async () => {
@@ -209,6 +217,14 @@ export const api = {
     return jsonRequest(`/ledgers/${ledgerId}/members`, {}, 'Failed to get members');
   },
 
+  removeMember: async (ledgerId, memberId) => {
+    return jsonRequest(
+      `/ledgers/${ledgerId}/members/${memberId}`,
+      { method: 'DELETE' },
+      'Failed to remove member'
+    );
+  },
+
   // Expenses
   getExpenses: async (ledgerId) => {
     return jsonRequest(`/expenses/ledgers/${ledgerId}/expenses`, {}, 'Failed to get expenses');
@@ -234,6 +250,10 @@ export const api = {
       },
       'Failed to confirm expense'
     );
+  },
+
+  deleteExpense: async (expenseId) => {
+    return jsonRequest(`/expenses/${expenseId}`, { method: 'DELETE' }, 'Failed to delete expense');
   },
 
   // Settlements
