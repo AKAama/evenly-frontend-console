@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider } from 'antd';
-import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider, Badge } from 'antd';
+import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import html2canvas from 'html2canvas';
 import dayjs from 'dayjs';
 
@@ -11,10 +11,18 @@ export function Dashboard({ onLogout }) {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedLedger, setSelectedLedger] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [invitations, setInvitations] = useState([]);
+  const [respondingInvitationId, setRespondingInvitationId] = useState(null);
 
   useEffect(() => {
-    loadLedgers();
+    loadHome();
   }, []);
+
+  const loadHome = async () => {
+    setLoading(true);
+    await Promise.all([loadLedgers(), loadInvitations()]);
+    setLoading(false);
+  };
 
   const loadLedgers = async () => {
     try {
@@ -22,8 +30,30 @@ export function Dashboard({ onLogout }) {
       setLedgers(data);
     } catch (err) {
       message.error(err.message);
+    } finally {}
+  };
+
+  const loadInvitations = async () => {
+    try {
+      const data = await api.getPendingInvitations();
+      setInvitations(data);
+    } catch (err) {
+      message.error(err.message);
+    }
+  };
+
+  const handleInvitation = async (invitationId, accept) => {
+    setRespondingInvitationId(invitationId);
+    try {
+      if (accept) await api.acceptInvitation(invitationId);
+      else await api.rejectInvitation(invitationId);
+      message.success(accept ? '已加入账本' : '已拒绝邀请');
+      setInvitations((items) => items.filter((item) => item.id !== invitationId));
+      if (accept) await loadLedgers();
+    } catch (err) {
+      message.error(err.message);
     } finally {
-      setLoading(false);
+      setRespondingInvitationId(null);
     }
   };
 
@@ -61,6 +91,47 @@ export function Dashboard({ onLogout }) {
           <Button icon={<LogoutOutlined />} onClick={onLogout}>退出</Button>
         </Space>
       } style={styles.mainCard}>
+        {invitations.length > 0 && (
+          <Card
+            size="small"
+            title={<Space><Badge count={invitations.length} /><span>待处理邀请</span></Space>}
+            style={{ marginBottom: 16 }}
+          >
+            <List
+              dataSource={invitations}
+              renderItem={(invitation) => (
+                <List.Item
+                  actions={[
+                    <Button
+                      key="reject"
+                      icon={<CloseOutlined />}
+                      disabled={respondingInvitationId === invitation.id}
+                      onClick={() => handleInvitation(invitation.id, false)}
+                    >
+                      拒绝
+                    </Button>,
+                    <Button
+                      key="accept"
+                      type="primary"
+                      icon={<CheckOutlined />}
+                      loading={respondingInvitationId === invitation.id}
+                      onClick={() => handleInvitation(invitation.id, true)}
+                    >
+                      接受
+                    </Button>,
+                  ]}
+                >
+                  <List.Item.Meta
+                    avatar={<Avatar>{invitation.ledger_name?.[0] || '?'}</Avatar>}
+                    title={invitation.ledger_name}
+                    description={`${invitation.invited_by_name} 邀请你加入`}
+                  />
+                </List.Item>
+              )}
+            />
+          </Card>
+        )}
+
         <div style={styles.createForm}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>创建账本</Button>
         </div>
@@ -528,6 +599,14 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
       )
     },
     { title: '邮箱', dataIndex: ['user', 'email'], key: 'email' },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status) => status === 'pending'
+        ? <Tag color="gold">等待接受</Tag>
+        : <Tag color="green">已加入</Tag>,
+    },
   ];
 
   const settlementColumns = [
@@ -583,7 +662,9 @@ function LedgerDetail({ ledger, onBack, onRefresh }) {
       >
         <Card type="inner" extra={
           <Space wrap>
-            <Button icon={<UserAddOutlined />} onClick={() => setAddMemberOpen(true)}>添加成员</Button>
+            {currentUser?.id === ledger.owner_id && (
+              <Button icon={<UserAddOutlined />} onClick={() => setAddMemberOpen(true)}>邀请成员</Button>
+            )}
             <Button type="primary" icon={<DollarOutlined />} onClick={() => setCreateExpenseOpen(true)}>添加支出</Button>
             <Button icon={<SwapOutlined />} onClick={() => setCreateSettlementOpen(true)}>添加结算</Button>
           </Space>
@@ -670,7 +751,7 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
     try {
       await api.addMember(ledgerId, userId, '');
       setAddedIds(prev => [...new Set([...prev, userId])]);
-      message.success('添加成功');
+      message.success('邀请已发送');
       onSuccess();
     } catch (err) {
       message.error(err.message);
@@ -699,7 +780,7 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
   };
 
   return (
-    <Modal title="添加成员" open={open} onCancel={onCancel} footer={null} width={500}>
+    <Modal title="邀请成员" open={open} onCancel={onCancel} footer={null} width={500}>
       <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
         <Input placeholder="搜索邮箱或用户名" value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} />
         <Button type="primary" loading={searching} onClick={handleSearch}>搜索</Button>
@@ -722,7 +803,7 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
                 loading={addingId === user.id}
                 onClick={() => handleAdd(user.id)}
               >
-                {isAdded ? '已添加' : '添加'}
+                {isAdded ? '已邀请' : '邀请'}
               </Button>
             ]}>
               <List.Item.Meta

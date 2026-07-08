@@ -159,6 +159,26 @@ export const api = {
     return jsonRequest(`/ledgers/${id}`, { method: 'DELETE' }, 'Failed to delete ledger');
   },
 
+  getPendingInvitations: async () => {
+    return jsonRequest('/ledgers/invitations/pending', {}, 'Failed to get invitations');
+  },
+
+  acceptInvitation: async (invitationId) => {
+    return jsonRequest(
+      `/ledgers/invitations/${invitationId}/accept`,
+      { method: 'POST' },
+      'Failed to accept invitation'
+    );
+  },
+
+  rejectInvitation: async (invitationId) => {
+    return jsonRequest(
+      `/ledgers/invitations/${invitationId}/reject`,
+      { method: 'POST' },
+      'Failed to reject invitation'
+    );
+  },
+
   // Members
   addMember: async (ledgerId, userId, nickname) => {
     return jsonRequest(
