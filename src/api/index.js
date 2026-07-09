@@ -60,6 +60,15 @@ const formRequest = async (path, formData, options = {}, fallback = 'Request fai
   return res.json();
 };
 
+const websocketUrl = (path) => {
+  const base = new URL(API_BASE);
+  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  base.pathname = path;
+  base.search = '';
+  base.hash = '';
+  return base.toString();
+};
+
 export const api = {
   setUnauthorizedHandler: (handler) => {
     unauthorizedHandler = handler;
@@ -255,6 +264,8 @@ export const api = {
   deleteExpense: async (expenseId) => {
     return jsonRequest(`/expenses/${expenseId}`, { method: 'DELETE' }, 'Failed to delete expense');
   },
+
+  voiceExpenseSessionUrl: (ledgerId) => websocketUrl(`/expenses/ledgers/${ledgerId}/voice-session`),
 
   // Settlements
   getSettlements: async (ledgerId) => {

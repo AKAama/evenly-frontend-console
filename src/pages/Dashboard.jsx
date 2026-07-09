@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider, Badge } from 'antd';
-import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, UserDeleteOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider, Badge, Alert } from 'antd';
+import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, UserDeleteOutlined, AudioOutlined } from '@ant-design/icons';
 import html2canvas from 'html2canvas';
 import dayjs from 'dayjs';
 
@@ -242,6 +242,66 @@ const expensePresets = [
   { category: '住宿', items: ['酒店', '民宿'] },
 ];
 
+const VOICE_SAMPLE_RATE = 16000;
+
+const downsampleBuffer = (buffer, inputRate, outputRate = VOICE_SAMPLE_RATE) => {
+  if (inputRate === outputRate) return buffer;
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.round(buffer.length / ratio);
+  const result = new Float32Array(outputLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+
+  while (offsetResult < result.length) {
+    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+    let accum = 0;
+    let count = 0;
+    for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i += 1) {
+      accum += buffer[i];
+      count += 1;
+    }
+    result[offsetResult] = count ? accum / count : 0;
+    offsetResult += 1;
+    offsetBuffer = nextOffsetBuffer;
+  }
+
+  return result;
+};
+
+const floatTo16BitPCM = (input) => {
+  const output = new ArrayBuffer(input.length * 2);
+  const view = new DataView(output);
+  for (let i = 0; i < input.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, input[i]));
+    view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return output;
+};
+
+const buildSplitsByDraft = (draft, fallbackMembers) => {
+  const draftSplits = draft?.splits || [];
+  if (draftSplits.length > 0) {
+    return draftSplits.map((split) => ({
+      memberId: split.member_id,
+      amount: Number(split.amount || 0),
+    }));
+  }
+
+  const amount = Number(draft?.total_amount || draft?.amount || 0);
+  if (!amount || fallbackMembers.length === 0) return [];
+  const totalCents = Math.round(amount * 100);
+  const baseCents = Math.floor(totalCents / fallbackMembers.length);
+  let remainder = totalCents - baseCents * fallbackMembers.length;
+  return fallbackMembers.map((member) => {
+    const extraCent = remainder > 0 ? 1 : 0;
+    remainder -= extraCent;
+    return {
+      memberId: getMemberId(member),
+      amount: (baseCents + extraCent) / 100,
+    };
+  });
+};
+
 function ProfileModal({ open, onClose, onAccountDeleted }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -477,6 +537,8 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [createExpenseOpen, setCreateExpenseOpen] = useState(false);
+  const [voiceExpenseOpen, setVoiceExpenseOpen] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState(null);
   const [createSettlementOpen, setCreateSettlementOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -777,7 +839,17 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
             {currentUser?.id === ledger.owner_id && (
               <Button icon={<UserAddOutlined />} onClick={() => setAddMemberOpen(true)}>邀请成员</Button>
             )}
-            <Button type="primary" icon={<DollarOutlined />} onClick={() => setCreateExpenseOpen(true)}>添加支出</Button>
+            <Button icon={<AudioOutlined />} onClick={() => setVoiceExpenseOpen(true)}>语音记账</Button>
+            <Button
+              type="primary"
+              icon={<DollarOutlined />}
+              onClick={() => {
+                setVoiceDraft(null);
+                setCreateExpenseOpen(true);
+              }}
+            >
+              添加支出
+            </Button>
             <Button icon={<SwapOutlined />} onClick={() => setCreateSettlementOpen(true)}>添加结算</Button>
           </Space>
         }>
@@ -802,10 +874,25 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
 
       <CreateExpenseModal
         open={createExpenseOpen}
-        onCancel={() => setCreateExpenseOpen(false)}
+        onCancel={() => {
+          setCreateExpenseOpen(false);
+          setVoiceDraft(null);
+        }}
         ledgerId={ledger.id}
         members={members}
-        onSuccess={() => { setCreateExpenseOpen(false); loadData(); }}
+        initialDraft={voiceDraft}
+        onSuccess={() => { setCreateExpenseOpen(false); setVoiceDraft(null); loadData(); }}
+      />
+
+      <VoiceExpenseModal
+        open={voiceExpenseOpen}
+        ledgerId={ledger.id}
+        onCancel={() => setVoiceExpenseOpen(false)}
+        onDraft={(draft) => {
+          setVoiceDraft(draft);
+          setVoiceExpenseOpen(false);
+          setCreateExpenseOpen(true);
+        }}
       />
 
       <CreateSettlementModal
@@ -932,7 +1019,7 @@ function AddMemberModal({ open, onCancel, ledgerId, existingIds, onSuccess }) {
   );
 }
 
-function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
+function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, onSuccess }) {
   const [form] = Form.useForm();
   const [splitType, setSplitType] = useState('equal');
   const [splits, setSplits] = useState([]);
@@ -966,13 +1053,29 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
 
   useEffect(() => {
     if (!open) return;
-    const initialMemberIds = activeMembers.map(getMemberId).filter(Boolean);
+    const initialMemberIds = initialDraft?.participant_member_ids?.length
+      ? initialDraft.participant_member_ids
+      : activeMembers.map(getMemberId).filter(Boolean);
+    const draftMembers = activeMembers.filter((member) => initialMemberIds.includes(getMemberId(member)));
+    const draftAmount = Number(initialDraft?.total_amount || initialDraft?.amount || 0) || undefined;
+    const draftSplitType = initialDraft?.split_type === 'exact' ? 'exact' : 'equal';
+    const draftSplits = initialDraft
+      ? buildSplitsByDraft(initialDraft, draftMembers)
+      : [];
+
     setSelectedMemberIds(initialMemberIds);
-    setSplitType('equal');
-    setSplits([]);
+    setSplitType(draftSplitType);
+    setSplits(draftSplits);
     form.resetFields();
-    form.setFieldsValue({ date: dayjs(), participants: initialMemberIds });
-  }, [open, activeMembers, form]);
+    form.setFieldsValue({
+      title: initialDraft?.title,
+      amount: draftAmount,
+      date: initialDraft?.expense_date ? dayjs(initialDraft.expense_date) : dayjs(),
+      payer_id: initialDraft?.payer_user_id,
+      participants: initialMemberIds,
+      description: initialDraft?.note || initialDraft?.transcript,
+    });
+  }, [open, activeMembers, form, initialDraft]);
 
   useEffect(() => {
     if (amount && selectedMembers.length > 0 && splitType === 'equal') {
@@ -1144,6 +1247,224 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, onSuccess }) {
           </Form.Item>
         )}
       </Form>
+    </Modal>
+  );
+}
+
+function VoiceExpenseModal({ open, ledgerId, onCancel, onDraft }) {
+  const [recording, setRecording] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [partialText, setPartialText] = useState('');
+  const [finalText, setFinalText] = useState('');
+  const [draft, setDraft] = useState(null);
+  const [error, setError] = useState('');
+  const wsRef = useRef(null);
+  const streamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const sourceRef = useRef(null);
+  const processorRef = useRef(null);
+  const sinkRef = useRef(null);
+
+  const cleanupAudio = useCallback(() => {
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    sinkRef.current?.disconnect();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    audioContextRef.current?.close?.();
+    processorRef.current = null;
+    sourceRef.current = null;
+    sinkRef.current = null;
+    streamRef.current = null;
+    audioContextRef.current = null;
+  }, []);
+
+  const resetSession = useCallback(() => {
+    cleanupAudio();
+    if (wsRef.current && wsRef.current.readyState <= WebSocket.OPEN) {
+      wsRef.current.close();
+    }
+    wsRef.current = null;
+    setRecording(false);
+    setProcessing(false);
+    setPartialText('');
+    setFinalText('');
+    setDraft(null);
+    setError('');
+  }, [cleanupAudio]);
+
+  useEffect(() => {
+    if (!open) resetSession();
+    return () => resetSession();
+  }, [open, resetSession]);
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('当前浏览器不支持麦克风录音');
+      return;
+    }
+
+    resetSession();
+    setError('');
+    setProcessing(false);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const sink = audioContext.createGain();
+      const ws = new WebSocket(api.voiceExpenseSessionUrl(ledgerId));
+
+      sink.gain.value = 0;
+      streamRef.current = stream;
+      audioContextRef.current = audioContext;
+      sourceRef.current = source;
+      processorRef.current = processor;
+      sinkRef.current = sink;
+      wsRef.current = ws;
+
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: 'start',
+          audio: {
+            format: 'pcm_s16le',
+            sample_rate: VOICE_SAMPLE_RATE,
+            channels: 1,
+          },
+        }));
+        source.connect(processor);
+        processor.connect(sink);
+        sink.connect(audioContext.destination);
+        setRecording(true);
+      };
+
+      processor.onaudioprocess = (event) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        const input = event.inputBuffer.getChannelData(0);
+        const downsampled = downsampleBuffer(input, audioContext.sampleRate);
+        ws.send(floatTo16BitPCM(downsampled));
+      };
+
+      ws.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'ready') return;
+        if (payload.type === 'partial_transcript') {
+          setPartialText(payload.text || '');
+          return;
+        }
+        if (payload.type === 'final_transcript') {
+          setPartialText('');
+          setFinalText((current) => [current, payload.text].filter(Boolean).join(' '));
+          return;
+        }
+        if (payload.type === 'draft') {
+          setDraft(payload.data);
+          setProcessing(false);
+          setRecording(false);
+          cleanupAudio();
+          return;
+        }
+        if (payload.type === 'error') {
+          setError(payload.message || '语音识别失败');
+          setProcessing(false);
+          setRecording(false);
+          cleanupAudio();
+        }
+      };
+
+      ws.onerror = () => {
+        setError('语音服务连接失败');
+        setProcessing(false);
+        setRecording(false);
+        cleanupAudio();
+      };
+
+      ws.onclose = () => {
+        setRecording(false);
+      };
+    } catch (err) {
+      setError(err.message || '无法启动麦克风');
+      cleanupAudio();
+    }
+  };
+
+  const stopRecording = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'stop' }));
+      setProcessing(true);
+    }
+    setRecording(false);
+    cleanupAudio();
+  };
+
+  const handleCancel = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'cancel' }));
+    }
+    resetSession();
+    onCancel();
+  };
+
+  const transcriptText = [finalText, partialText].filter(Boolean).join(' ');
+
+  return (
+    <Modal
+      title="语音记账"
+      open={open}
+      onCancel={handleCancel}
+      footer={[
+        <Button key="cancel" onClick={handleCancel}>关闭</Button>,
+        recording ? (
+          <Button key="stop" danger type="primary" icon={<AudioOutlined />} onClick={stopRecording}>
+            停止并解析
+          </Button>
+        ) : (
+          <Button key="start" type="primary" icon={<AudioOutlined />} onClick={startRecording} disabled={processing}>
+            开始录音
+          </Button>
+        ),
+        <Button
+          key="use"
+          type="primary"
+          disabled={!draft}
+          onClick={() => onDraft(draft)}
+        >
+          使用草稿
+        </Button>,
+      ]}
+      width={640}
+    >
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        {error && <Alert type="error" message={error} showIcon />}
+        {recording && <Alert type="info" message="正在录音，讲话结束后点击停止并解析。" showIcon />}
+        {processing && <Alert type="warning" message="正在生成账单草稿..." showIcon />}
+
+        <Card size="small" title="实时识别">
+          <div style={{ minHeight: 72, color: transcriptText ? '#111827' : '#8c8c8c', lineHeight: 1.7 }}>
+            {transcriptText || '点击开始录音后，这里会显示识别到的内容。'}
+          </div>
+        </Card>
+
+        {draft && (
+          <Card size="small" title="账单草稿">
+            <Space direction="vertical" size={8}>
+              <div><strong>{draft.title}</strong> · ¥{draft.total_amount || draft.amount}</div>
+              <div>付款人：{draft.payer_user_id}</div>
+              <div>参与人数：{draft.participant_member_ids?.length || 0} · 分摊方式：{draft.split_type === 'exact' ? '按金额' : '平均分摊'}</div>
+              {draft.confirmation_text && <div style={{ color: '#6b7280' }}>{draft.confirmation_text}</div>}
+            </Space>
+          </Card>
+        )}
+      </Space>
     </Modal>
   );
 }
