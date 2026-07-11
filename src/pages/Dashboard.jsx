@@ -542,6 +542,7 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
   const [createSettlementOpen, setCreateSettlementOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [reinvitingUserId, setReinvitingUserId] = useState(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -639,6 +640,21 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
     }
   };
 
+  const handleReinviteMember = async (member) => {
+    if (!member?.user_id) return;
+    setReinvitingUserId(member.user_id);
+    try {
+      await api.addMember(ledger.id, member.user_id, member.nickname || '');
+      message.success('已再次发送邀请');
+      await loadData();
+      onRefresh?.();
+    } catch (err) {
+      message.error(err.message);
+    } finally {
+      setReinvitingUserId(null);
+    }
+  };
+
   const handleExportImage = async () => {
     setExportOpen(true);
   };
@@ -718,7 +734,14 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
       render: (_, r) => {
         const splitUserIds = r.splits?.map(s => s.user_id) || [];
         const hasConfirmed = r.confirmations?.some(c => c.user_id === currentUser?.id);
-        const canRespond = r.status === 'pending' && splitUserIds.includes(currentUser?.id) && !hasConfirmed;
+        // Creator and payer do not need to confirm.
+        const isExempt =
+          currentUser?.id === r.created_by || currentUser?.id === r.payer_id;
+        const canRespond =
+          r.status === 'pending'
+          && splitUserIds.includes(currentUser?.id)
+          && !hasConfirmed
+          && !isExempt;
         const canDelete = currentUser?.id === r.created_by || currentUser?.id === ledger.owner_id;
 
         if (!canRespond && !canDelete) return hasConfirmed ? '已响应' : '-';
@@ -760,16 +783,35 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => status === 'pending'
-        ? <Tag color="gold">等待接受</Tag>
-        : <Tag color="green">已加入</Tag>,
+      render: (status) => {
+        if (status === 'pending') return <Tag color="gold">等待接受</Tag>;
+        if (status === 'rejected') return <Tag color="red">已拒绝</Tag>;
+        if (status === 'removed') return <Tag>已移除</Tag>;
+        return <Tag color="green">已加入</Tag>;
+      },
     },
     {
       title: '操作',
       key: 'action',
       render: (_, r) => {
-        const canRemove = currentUser?.id === ledger.owner_id && r.user_id !== ledger.owner_id;
-        if (!canRemove) return '-';
+        const isOwner = currentUser?.id === ledger.owner_id;
+        const canManage = isOwner && r.user_id !== ledger.owner_id;
+        if (!canManage) return '-';
+
+        if (r.status === 'rejected' || r.status === 'removed') {
+          return (
+            <Button
+              type="link"
+              size="small"
+              loading={reinvitingUserId === r.user_id}
+              disabled={!r.user_id}
+              onClick={() => handleReinviteMember(r)}
+            >
+              再次邀请
+            </Button>
+          );
+        }
+
         return (
           <Popconfirm
             title={`确定移除 ${r.nickname || r.temporary_name || r.user?.display_name || '该成员'} 吗？`}
@@ -868,7 +910,10 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
         open={addMemberOpen}
         onCancel={() => setAddMemberOpen(false)}
         ledgerId={ledger.id}
-        existingIds={members.map(m => m.user_id).filter(Boolean)}
+        existingIds={members
+          .filter((m) => m.status === 'active' || m.status === 'pending')
+          .map((m) => m.user_id)
+          .filter(Boolean)}
         onSuccess={() => { setAddMemberOpen(false); loadData(); }}
       />
 
