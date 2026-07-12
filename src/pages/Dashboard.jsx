@@ -689,21 +689,23 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
   const expenseColumns = [
     { title: '标题', dataIndex: 'title', key: 'title', render: (t) => t || '未命名支出' },
     {
-      title: '类型',
-      dataIndex: 'kind',
-      key: 'kind',
-      width: 72,
-      render: (kind) => (kind === 'income' ? <Tag color="green">收入</Tag> : <Tag>支出</Tag>),
-    },
-    {
       title: '金额',
       dataIndex: 'total_amount',
       key: 'amount',
-      render: (v, row) => (
-        <span style={{ color: row.kind === 'income' ? '#52c41a' : undefined, fontWeight: 'bold' }}>
-          {row.kind === 'income' ? '+' : ''}¥{v}
-        </span>
-      ),
+      render: (v, row) => {
+        const refund = Number(row.refund_amount || 0);
+        const net = Number(v) - refund;
+        return (
+          <span style={{ fontWeight: 'bold' }}>
+            ¥{net.toFixed(2)}
+            {refund > 0 && (
+              <span style={{ color: '#888', fontWeight: 400, marginLeft: 6, fontSize: 12 }}>
+                (原¥{Number(v).toFixed(2)}−退¥{refund.toFixed(2)})
+              </span>
+            )}
+          </span>
+        );
+      },
     },
     { title: '付款人', key: 'payer', render: (_, r) => r.payer?.display_name || r.payer?.email },
     { title: '日期', dataIndex: 'expense_date', key: 'date' },
@@ -1269,7 +1271,6 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
     form.setFieldsValue({
       title: initialDraft?.title,
       amount: draftAmount,
-      kind: 'expense',
       date: initialDraft?.expense_date ? dayjs(initialDraft.expense_date) : dayjs(),
       payer_id: initialDraft?.payer_user_id,
       participants: initialMemberIds,
@@ -1324,9 +1325,8 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
       }
 
       const payerMember = registeredMembers.find((member) => member.user_id === values.payer_id);
-      const isIncome = values.kind === 'income';
       if (!payerMember || !selectedMemberIds.includes(getMemberId(payerMember))) {
-        message.error(isIncome ? '收款人必须同时参与这笔账单' : '付款人必须同时参与这笔账单');
+        message.error('付款人必须同时参与这笔账单');
         return;
       }
 
@@ -1341,7 +1341,6 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
       await api.createExpense(ledgerId, {
         title: values.title,
         total_amount: parseFloat(values.amount),
-        kind: values.kind || 'expense',
         payer_id: values.payer_id,
         expense_date: values.date.format('YYYY-MM-DD'),
         note: values.description,
@@ -1380,18 +1379,8 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
             ))}
           </Space>
         </Form.Item>
-        <Form.Item name="kind" label="类型" initialValue="expense" rules={[{ required: true }]}>
-          <Radio.Group
-            optionType="button"
-            buttonStyle="solid"
-            options={[
-              { label: '支出', value: 'expense' },
-              { label: '收入', value: 'income' },
-            ]}
-          />
-        </Form.Item>
         <Form.Item name="title" label="标题" rules={[{ required: true }]}>
-          <Input placeholder="如：午餐 / 中奖" />
+          <Input placeholder="如：午餐" />
         </Form.Item>
         <Row gutter={16}>
           <Col span={12}>
@@ -1405,27 +1394,12 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item
-          noStyle
-          shouldUpdate={(prev, cur) => prev.kind !== cur.kind}
-        >
-          {() => {
-            const isIncome = form.getFieldValue('kind') === 'income';
-            return (
-              <Form.Item
-                name="payer_id"
-                label={isIncome ? '收款人' : '付款人'}
-                rules={[{ required: true }]}
-                extra={isIncome ? '实际拿到这笔钱的人（如中奖领取人）' : undefined}
-              >
-                <Select placeholder={isIncome ? '选择收款人' : '选择付款人'} onChange={handlePayerChange}>
-                  {registeredMembers.map((member) => (
-                    <Select.Option key={member.user_id} value={member.user_id}>{getMemberName(member)}</Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            );
-          }}
+        <Form.Item name="payer_id" label="付款人" rules={[{ required: true }]}>
+          <Select placeholder="选择付款人" onChange={handlePayerChange}>
+            {registeredMembers.map((member) => (
+              <Select.Option key={member.user_id} value={member.user_id}>{getMemberName(member)}</Select.Option>
+            ))}
+          </Select>
         </Form.Item>
         <Form.Item name="participants" label="参与人" rules={[{ required: true, message: '请至少选择一位参与人' }]}>
           <Select mode="multiple" placeholder="选择参与人" value={selectedMemberIds} onChange={handleParticipantsChange} optionFilterProp="label">
@@ -1742,7 +1716,7 @@ function CreateSettlementModal({ open, onCancel, ledgerId, members, onSuccess })
 
 function ExportPreviewModal({ open, onCancel, ledger, members, expenses, settlements, onExport }) {
   // 计算统计数据
-  const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.total_amount), 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.total_amount) - Number(e.refund_amount || 0), 0);
 
   return (
     <Modal

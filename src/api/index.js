@@ -266,14 +266,14 @@ export const api = {
     );
   },
 
-  createCompoundExpense: async (ledgerId, payload) => {
+  setExpenseRefund: async (expenseId, payload) => {
     return jsonRequest(
-      `/expenses/ledgers/${ledgerId}/expenses/compound`,
+      `/expenses/${expenseId}/refund`,
       {
-        method: 'POST',
+        method: 'PATCH',
         body: JSON.stringify(payload),
       },
-      'Failed to create compound expense'
+      'Failed to set expense refund'
     );
   },
 
