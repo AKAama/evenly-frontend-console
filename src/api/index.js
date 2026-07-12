@@ -234,6 +234,22 @@ export const api = {
     );
   },
 
+  getInviteLink: async (ledgerId) => {
+    return jsonRequest(
+      `/ledgers/${ledgerId}/invite-link`,
+      {},
+      'Failed to get invite link'
+    );
+  },
+
+  rotateInviteLink: async (ledgerId) => {
+    return jsonRequest(
+      `/ledgers/${ledgerId}/invite-link/rotate`,
+      { method: 'POST' },
+      'Failed to rotate invite link'
+    );
+  },
+
   // Expenses
   getExpenses: async (ledgerId) => {
     return jsonRequest(`/expenses/ledgers/${ledgerId}/expenses`, {}, 'Failed to get expenses');
@@ -247,6 +263,17 @@ export const api = {
         body: JSON.stringify(expense),
       },
       'Failed to create expense'
+    );
+  },
+
+  createCompoundExpense: async (ledgerId, payload) => {
+    return jsonRequest(
+      `/expenses/ledgers/${ledgerId}/expenses/compound`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'Failed to create compound expense'
     );
   },
 

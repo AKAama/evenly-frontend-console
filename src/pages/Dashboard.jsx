@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
-import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider, Badge, Alert } from 'antd';
-import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, UserDeleteOutlined, AudioOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Popconfirm, Space, Avatar, List, InputNumber, Tabs, Tooltip, Divider, Badge, Alert, Radio } from 'antd';
+import { PlusOutlined, UserAddOutlined, DollarOutlined, SwapOutlined, LogoutOutlined, ArrowLeftOutlined, ReloadOutlined, ExportOutlined, UserOutlined, CameraOutlined, LockOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, UserDeleteOutlined, AudioOutlined, QrcodeOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons';
+import { QRCodeSVG } from 'qrcode.react';
 import html2canvas from 'html2canvas';
 import dayjs from 'dayjs';
 
@@ -541,6 +542,7 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
   const [voiceDraft, setVoiceDraft] = useState(null);
   const [createSettlementOpen, setCreateSettlementOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [inviteQROpen, setInviteQROpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reinvitingUserId, setReinvitingUserId] = useState(null);
 
@@ -686,7 +688,23 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
 
   const expenseColumns = [
     { title: '标题', dataIndex: 'title', key: 'title', render: (t) => t || '未命名支出' },
-    { title: '金额', dataIndex: 'total_amount', key: 'amount', render: (v) => <span style={{ color: '#52c41a', fontWeight: 'bold' }}>¥{v}</span> },
+    {
+      title: '类型',
+      dataIndex: 'kind',
+      key: 'kind',
+      width: 72,
+      render: (kind) => (kind === 'income' ? <Tag color="green">收入</Tag> : <Tag>支出</Tag>),
+    },
+    {
+      title: '金额',
+      dataIndex: 'total_amount',
+      key: 'amount',
+      render: (v, row) => (
+        <span style={{ color: row.kind === 'income' ? '#52c41a' : undefined, fontWeight: 'bold' }}>
+          {row.kind === 'income' ? '+' : ''}¥{v}
+        </span>
+      ),
+    },
     { title: '付款人', key: 'payer', render: (_, r) => r.payer?.display_name || r.payer?.email },
     { title: '日期', dataIndex: 'expense_date', key: 'date' },
     {
@@ -879,7 +897,14 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
         <Card type="inner" extra={
           <Space wrap>
             {currentUser?.id === ledger.owner_id && (
-              <Button icon={<UserAddOutlined />} onClick={() => setAddMemberOpen(true)}>邀请成员</Button>
+              <>
+                <Button icon={<QrcodeOutlined />} onClick={() => setInviteQROpen(true)}>
+                  邀请二维码
+                </Button>
+                <Button icon={<UserAddOutlined />} onClick={() => setAddMemberOpen(true)}>
+                  邀请成员
+                </Button>
+              </>
             )}
             <Button icon={<AudioOutlined />} onClick={() => setVoiceExpenseOpen(true)}>语音记账</Button>
             <Button
@@ -915,6 +940,13 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
           .map((m) => m.user_id)
           .filter(Boolean)}
         onSuccess={() => { setAddMemberOpen(false); loadData(); }}
+      />
+
+      <InviteQRModal
+        open={inviteQROpen}
+        onCancel={() => setInviteQROpen(false)}
+        ledgerId={ledger.id}
+        ledgerName={ledger.name}
       />
 
       <CreateExpenseModal
@@ -958,6 +990,128 @@ function LedgerDetail({ ledger, onBack, onRefresh, onLeave }) {
         onExport={handleExportConfirm}
       />
     </div>
+  );
+}
+
+function InviteQRModal({ open, onCancel, ledgerId, ledgerName }) {
+  const [link, setLink] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [rotating, setRotating] = useState(false);
+
+  const loadLink = useCallback(async () => {
+    if (!ledgerId) return;
+    setLoading(true);
+    try {
+      const data = await api.getInviteLink(ledgerId);
+      setLink(data);
+    } catch (err) {
+      message.error(err.message || '获取邀请二维码失败');
+      setLink(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [ledgerId]);
+
+  useEffect(() => {
+    if (open) {
+      loadLink();
+    } else {
+      setLink(null);
+    }
+  }, [open, loadLink]);
+
+  const handleCopy = async () => {
+    if (!link?.url) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      message.success('邀请链接已复制');
+    } catch {
+      message.error('复制失败，请手动选择链接');
+    }
+  };
+
+  const handleRotate = async () => {
+    setRotating(true);
+    try {
+      const data = await api.rotateInviteLink(ledgerId);
+      setLink(data);
+      message.success('已重置二维码，旧链接立即失效');
+    } catch (err) {
+      message.error(err.message || '重置失败');
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="邀请二维码"
+      open={open}
+      onCancel={onCancel}
+      footer={null}
+      width={440}
+      destroyOnClose
+    >
+      <div style={{ textAlign: 'center' }}>
+        <p style={{ color: '#666', marginBottom: 16 }}>
+          朋友用手机相机扫一扫，可打开 Evenly 加入「{link?.ledger_name || ledgerName}」。
+          也可复制链接发到微信 / 邮件。
+        </p>
+        {loading && !link ? (
+          <div style={{ padding: 48, color: '#999' }}>生成邀请码…</div>
+        ) : link ? (
+          <>
+            <div
+              style={{
+                display: 'inline-block',
+                padding: 16,
+                background: '#fff',
+                borderRadius: 16,
+                border: '1px solid #f0f0f0',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+              }}
+            >
+              <QRCodeSVG value={link.url} size={220} level="M" includeMargin />
+            </div>
+            <div
+              style={{
+                marginTop: 16,
+                padding: '10px 12px',
+                background: '#fafafa',
+                borderRadius: 8,
+                wordBreak: 'break-all',
+                fontSize: 12,
+                color: '#555',
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              }}
+            >
+              <LinkOutlined style={{ marginRight: 6 }} />
+              {link.url}
+            </div>
+            <Space wrap style={{ marginTop: 16, justifyContent: 'center' }}>
+              <Button type="primary" icon={<CopyOutlined />} onClick={handleCopy}>
+                复制链接
+              </Button>
+              <Button
+                danger
+                loading={rotating}
+                icon={<ReloadOutlined />}
+                onClick={handleRotate}
+              >
+                重置二维码
+              </Button>
+            </Space>
+            <p style={{ marginTop: 14, marginBottom: 0, fontSize: 12, color: '#999' }}>
+              仅账本创建者可生成与重置。重置后旧二维码立即失效。
+            </p>
+          </>
+        ) : (
+          <div style={{ padding: 32 }}>
+            <Button onClick={loadLink}>重试</Button>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -1115,6 +1269,7 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
     form.setFieldsValue({
       title: initialDraft?.title,
       amount: draftAmount,
+      kind: 'expense',
       date: initialDraft?.expense_date ? dayjs(initialDraft.expense_date) : dayjs(),
       payer_id: initialDraft?.payer_user_id,
       participants: initialMemberIds,
@@ -1169,8 +1324,9 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
       }
 
       const payerMember = registeredMembers.find((member) => member.user_id === values.payer_id);
+      const isIncome = values.kind === 'income';
       if (!payerMember || !selectedMemberIds.includes(getMemberId(payerMember))) {
-        message.error('付款人必须同时参与这笔账单');
+        message.error(isIncome ? '收款人必须同时参与这笔账单' : '付款人必须同时参与这笔账单');
         return;
       }
 
@@ -1185,6 +1341,7 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
       await api.createExpense(ledgerId, {
         title: values.title,
         total_amount: parseFloat(values.amount),
+        kind: values.kind || 'expense',
         payer_id: values.payer_id,
         expense_date: values.date.format('YYYY-MM-DD'),
         note: values.description,
@@ -1223,8 +1380,18 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
             ))}
           </Space>
         </Form.Item>
+        <Form.Item name="kind" label="类型" initialValue="expense" rules={[{ required: true }]}>
+          <Radio.Group
+            optionType="button"
+            buttonStyle="solid"
+            options={[
+              { label: '支出', value: 'expense' },
+              { label: '收入', value: 'income' },
+            ]}
+          />
+        </Form.Item>
         <Form.Item name="title" label="标题" rules={[{ required: true }]}>
-          <Input placeholder="如：午餐" />
+          <Input placeholder="如：午餐 / 中奖" />
         </Form.Item>
         <Row gutter={16}>
           <Col span={12}>
@@ -1238,12 +1405,27 @@ function CreateExpenseModal({ open, onCancel, ledgerId, members, initialDraft, o
             </Form.Item>
           </Col>
         </Row>
-        <Form.Item name="payer_id" label="付款人" rules={[{ required: true }]}>
-          <Select placeholder="选择付款人" onChange={handlePayerChange}>
-            {registeredMembers.map((member) => (
-              <Select.Option key={member.user_id} value={member.user_id}>{getMemberName(member)}</Select.Option>
-            ))}
-          </Select>
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, cur) => prev.kind !== cur.kind}
+        >
+          {() => {
+            const isIncome = form.getFieldValue('kind') === 'income';
+            return (
+              <Form.Item
+                name="payer_id"
+                label={isIncome ? '收款人' : '付款人'}
+                rules={[{ required: true }]}
+                extra={isIncome ? '实际拿到这笔钱的人（如中奖领取人）' : undefined}
+              >
+                <Select placeholder={isIncome ? '选择收款人' : '选择付款人'} onChange={handlePayerChange}>
+                  {registeredMembers.map((member) => (
+                    <Select.Option key={member.user_id} value={member.user_id}>{getMemberName(member)}</Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            );
+          }}
         </Form.Item>
         <Form.Item name="participants" label="参与人" rules={[{ required: true, message: '请至少选择一位参与人' }]}>
           <Select mode="multiple" placeholder="选择参与人" value={selectedMemberIds} onChange={handleParticipantsChange} optionFilterProp="label">
