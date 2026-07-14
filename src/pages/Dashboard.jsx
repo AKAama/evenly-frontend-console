@@ -6,7 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import html2canvas from 'html2canvas';
 import dayjs from 'dayjs';
 
-export function Dashboard({ onLogout }) {
+export function Dashboard({ onLogout, hideChrome = false }) {
   const [ledgers, setLedgers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -116,7 +116,9 @@ export function Dashboard({ onLogout }) {
       <Card title="我的账本" extra={
         <Space>
           <Button icon={<UserOutlined />} onClick={() => setProfileOpen(true)}>个人中心</Button>
-          <Button icon={<LogoutOutlined />} onClick={onLogout}>退出</Button>
+          {!hideChrome && (
+            <Button icon={<LogoutOutlined />} onClick={onLogout}>退出</Button>
+          )}
         </Space>
       } style={styles.mainCard}>
         {invitations.length > 0 && (

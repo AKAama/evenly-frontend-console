@@ -13,6 +13,7 @@ const parseError = async (res, fallback) => {
 
 const request = async (path, options = {}) => {
   const headers = {
+    'X-Client': 'console',
     ...(options.headers || {}),
   };
 
@@ -317,5 +318,62 @@ export const api = {
       },
       'Failed to create settlement'
     );
+  },
+
+  // Admin audit feed
+  getAuditEvents: async ({ day, source, action, limit = 200, offset = 0 } = {}) => {
+    const params = new URLSearchParams();
+    if (day) params.set('day', day);
+    if (source) params.set('source', source);
+    if (action) params.set('action', action);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    return jsonRequest(`/admin/audit-events?${params}`, {}, 'Failed to load audit events');
+  },
+
+  getAuditSummary: async ({ day } = {}) => {
+    const params = new URLSearchParams();
+    if (day) params.set('day', day);
+    return jsonRequest(`/admin/audit-events/summary?${params}`, {}, 'Failed to load audit summary');
+  },
+
+  listPlatformUsers: async () => {
+    return jsonRequest('/admin/platform-users', {}, 'Failed to list platform users');
+  },
+
+  createPlatformUser: async ({ email, username, password, display_name }) => {
+    return jsonRequest(
+      '/admin/platform-users',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email, username, password, display_name }),
+      },
+      'Failed to create platform user'
+    );
+  },
+
+  adminListUsers: async ({ q, account_kind, limit = 100, offset = 0 } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (account_kind) params.set('account_kind', account_kind);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    return jsonRequest(`/admin/users?${params}`, {}, 'Failed to list users');
+  },
+
+  adminGetUser: async (userId) => {
+    return jsonRequest(`/admin/users/${userId}`, {}, 'Failed to get user');
+  },
+
+  adminListLedgers: async ({ q, limit = 100, offset = 0 } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    return jsonRequest(`/admin/ledgers?${params}`, {}, 'Failed to list ledgers');
+  },
+
+  adminLedgerOverview: async (ledgerId) => {
+    return jsonRequest(`/admin/ledgers/${ledgerId}/overview`, {}, 'Failed to load ledger overview');
   },
 };
