@@ -5,6 +5,7 @@ import { AuditLogPage } from './pages/AuditLog';
 import { PlatformUsersPage } from './pages/PlatformUsers';
 import { AdminUsersPage } from './pages/AdminUsers';
 import { AdminLedgersPage } from './pages/AdminLedgers';
+import { AccountSettingsPage } from './pages/AccountSettings';
 import { api } from './api';
 import { Layout, Menu, Button, Space, Tag } from 'antd';
 import {
@@ -14,6 +15,7 @@ import {
   UserOutlined,
   DatabaseOutlined,
   LogoutOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 
 const { Header, Content } = Layout;
@@ -100,6 +102,7 @@ function App() {
             { key: 'platform-users', icon: <TeamOutlined />, label: '平台账号' },
           ]
         : []),
+      { key: 'account', icon: <SettingOutlined />, label: '账户' },
     ];
 
     let body = <Dashboard onLogout={handleLogout} hideChrome />;
@@ -107,6 +110,14 @@ function App() {
     if (activeMenu === 'all-users' && isAdmin) body = <AdminUsersPage />;
     if (activeMenu === 'audit' && isAdmin) body = <AuditLogPage />;
     if (activeMenu === 'platform-users' && isAdmin) body = <PlatformUsersPage />;
+    if (activeMenu === 'account') {
+      body = (
+        <AccountSettingsPage
+          user={currentUser}
+          onUserUpdated={(u) => setCurrentUser(u)}
+        />
+      );
+    }
     if (isPlatform && activeMenu === 'ledgers') body = <AdminLedgersPage />;
 
     return (
@@ -128,7 +139,7 @@ function App() {
               selectedKeys={[activeMenu]}
               items={menuItems}
               onClick={({ key }) => setActiveMenu(key)}
-              style={{ minWidth: 360, background: 'transparent' }}
+              style={{ minWidth: 420, background: 'transparent', flex: 1 }}
             />
           </div>
           <Space>
@@ -137,6 +148,14 @@ function App() {
             </span>
             {isPlatform && <Tag color="gold">平台账号</Tag>}
             {isAdmin && !isPlatform && <Tag color="blue">管理员</Tag>}
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              onClick={() => setActiveMenu('account')}
+              style={{ color: '#fff' }}
+            >
+              账户
+            </Button>
             <Button type="text" icon={<LogoutOutlined />} onClick={handleLogout} style={{ color: '#fff' }}>
               退出
             </Button>
