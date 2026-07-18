@@ -1,7 +1,42 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
-import { Card, Table, Input, Select, Space, Tag, Button, Drawer, Descriptions, List, message } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import {
+  Card,
+  Table,
+  Input,
+  Select,
+  Space,
+  Tag,
+  Button,
+  Drawer,
+  Descriptions,
+  List,
+  message,
+  Modal,
+  Form,
+  Typography,
+  Alert,
+} from 'antd';
+import { ReloadOutlined, SearchOutlined, KeyOutlined, CopyOutlined } from '@ant-design/icons';
+
+const { Text } = Typography;
+
+const fallbackColor = (key, color) => color || ({
+  founder: 'gold',
+  crew: 'blue',
+  mate: 'orange',
+  beta: 'purple',
+  vip: 'magenta',
+}[key] || 'blue');
+
+function randomPassword(len = 10) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < len; i += 1) {
+    s += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return s;
+}
 
 export function AdminUsersPage() {
   const [rows, setRows] = useState([]);
@@ -11,6 +46,12 @@ export function AdminUsersPage() {
   const [accountKind, setAccountKind] = useState(undefined);
   const [detail, setDetail] = useState(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [badgeOptions, setBadgeOptions] = useState([]);
+  const [savingBadge, setSavingBadge] = useState(false);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [lastResetPassword, setLastResetPassword] = useState(null);
+  const [pwdForm] = Form.useForm();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,6 +70,17 @@ export function AdminUsersPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.adminListBadges();
+        setBadgeOptions(data.items || []);
+      } catch {
+        // non-blocking
+      }
+    })();
+  }, []);
+
   const openDetail = async (userId) => {
     try {
       const data = await api.adminGetUser(userId);
@@ -39,13 +91,75 @@ export function AdminUsersPage() {
     }
   };
 
+  const setBadge = async (badge) => {
+    if (!detail?.user?.id) return;
+    setSavingBadge(true);
+    try {
+      const updated = await api.adminSetUserBadge(detail.user.id, badge);
+      setDetail((prev) => (prev ? { ...prev, user: { ...prev.user, ...updated } } : prev));
+      setRows((prev) =>
+        prev.map((r) => (r.id === updated.id ? { ...r, badge: updated.badge, badge_label: updated.badge_label } : r))
+      );
+      message.success(badge ? `已设置铭牌：${updated.badge_label || badge}` : '已清除铭牌');
+    } catch (err) {
+      message.error(err.message || '设置铭牌失败');
+    } finally {
+      setSavingBadge(false);
+    }
+  };
+
+  const openResetPassword = () => {
+    setLastResetPassword(null);
+    pwdForm.resetFields();
+    const generated = randomPassword(10);
+    pwdForm.setFieldsValue({ new_password: generated, confirm_password: generated });
+    setPwdOpen(true);
+  };
+
+  const submitResetPassword = async () => {
+    if (!detail?.user?.id) return;
+    try {
+      const values = await pwdForm.validateFields();
+      if (values.new_password !== values.confirm_password) {
+        message.error('两次输入的密码不一致');
+        return;
+      }
+      setPwdSaving(true);
+      await api.adminResetUserPassword(detail.user.id, values.new_password);
+      setLastResetPassword(values.new_password);
+      message.success('密码已重置，请把新密码告知用户');
+    } catch (err) {
+      if (err?.errorFields) return;
+      message.error(err.message || '重置失败');
+    } finally {
+      setPwdSaving(false);
+    }
+  };
+
+  const copyPassword = async () => {
+    if (!lastResetPassword) return;
+    try {
+      await navigator.clipboard.writeText(lastResetPassword);
+      message.success('已复制新密码');
+    } catch {
+      message.warning('复制失败，请手动选中复制');
+    }
+  };
+
   const columns = [
     {
       title: '用户',
       key: 'user',
       render: (_, r) => (
         <div>
-          <div style={{ fontWeight: 600 }}>{r.display_name || r.username}</div>
+          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{r.display_name || r.username}</span>
+            {r.badge_label && (
+              <Tag color={fallbackColor(r.badge, r.badge_color)} style={{ marginInlineEnd: 0 }}>
+                {r.badge_label}
+              </Tag>
+            )}
+          </div>
           <div style={{ color: '#888', fontSize: 12 }}>@{r.username}</div>
         </div>
       ),
@@ -57,6 +171,17 @@ export function AdminUsersPage() {
       width: 100,
       render: (k) =>
         k === 'platform' ? <Tag color="gold">平台</Tag> : <Tag color="blue">用户</Tag>,
+    },
+    {
+      title: '铭牌',
+      dataIndex: 'badge',
+      width: 100,
+      render: (b, r) =>
+        r.badge_label ? (
+          <Tag color={fallbackColor(b, r.badge_color)}>{r.badge_label}</Tag>
+        ) : (
+          <span style={{ color: '#bbb' }}>—</span>
+        ),
     },
     { title: '所属账本', dataIndex: 'membership_count', width: 90 },
     { title: '拥有账本', dataIndex: 'owned_ledger_count', width: 90 },
@@ -79,7 +204,7 @@ export function AdminUsersPage() {
   ];
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: 24, maxWidth: 1280, margin: '0 auto' }}>
       <Card
         title={`全部用户（${total}）`}
         extra={
@@ -118,6 +243,13 @@ export function AdminUsersPage() {
         width={520}
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
+        extra={
+          detail?.user ? (
+            <Button icon={<KeyOutlined />} onClick={openResetPassword}>
+              重置密码
+            </Button>
+          ) : null
+        }
       >
         {detail?.user && (
           <>
@@ -128,10 +260,37 @@ export function AdminUsersPage() {
               <Descriptions.Item label="类型">
                 {detail.user.account_kind === 'platform' ? '平台账号' : '普通用户'}
               </Descriptions.Item>
+              <Descriptions.Item label="铭牌">
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Select
+                    allowClear
+                    placeholder="无铭牌"
+                    style={{ width: '100%' }}
+                    loading={savingBadge}
+                    value={detail.user.badge || undefined}
+                    onChange={(v) => setBadge(v ?? null)}
+                    options={badgeOptions.map((b) => ({
+                      value: b.key,
+                      label: `${b.label}${b.description ? ` — ${b.description}` : ''}`,
+                    }))}
+                  />
+                  <div style={{ color: '#888', fontSize: 12 }}>
+                    仅展示用标识，不影响分账权限。可在「铭牌管理」维护类型。
+                  </div>
+                </Space>
+              </Descriptions.Item>
               <Descriptions.Item label="注册时间">
                 {detail.user.created_at ? new Date(detail.user.created_at).toLocaleString() : '—'}
               </Descriptions.Item>
             </Descriptions>
+            <div style={{ marginTop: 16 }}>
+              <Button block icon={<KeyOutlined />} onClick={openResetPassword}>
+                帮用户重置密码
+              </Button>
+              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                不会发邮件。重置后请把新密码私下告知用户；对方可用用户名/邮箱 + 新密码登录。
+              </Text>
+            </div>
             <h4 style={{ marginTop: 20 }}>拥有的账本</h4>
             <List
               size="small"
@@ -158,6 +317,77 @@ export function AdminUsersPage() {
           </>
         )}
       </Drawer>
+
+      <Modal
+        title={
+          detail?.user
+            ? `重置密码 · ${detail.user.display_name || detail.user.username}`
+            : '重置密码'
+        }
+        open={pwdOpen}
+        onCancel={() => setPwdOpen(false)}
+        onOk={submitResetPassword}
+        confirmLoading={pwdSaving}
+        okText="确认重置"
+        destroyOnClose
+      >
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="不会发送邮件"
+          description="新密码仅显示在此；请用安全方式告知用户。Apple 登录用户也可再设密码，便于账号密码登录。"
+        />
+        <Form form={pwdForm} layout="vertical">
+          <Form.Item
+            name="new_password"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '至少 6 位' },
+            ]}
+          >
+            <Input.Password placeholder="至少 6 位" autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirm_password"
+            label="确认新密码"
+            rules={[{ required: true, message: '请再次输入' }]}
+          >
+            <Input.Password placeholder="再次输入" autoComplete="new-password" />
+          </Form.Item>
+          <Button
+            type="link"
+            style={{ padding: 0, marginBottom: 12 }}
+            onClick={() => {
+              const p = randomPassword(10);
+              pwdForm.setFieldsValue({ new_password: p, confirm_password: p });
+            }}
+          >
+            随机生成密码
+          </Button>
+        </Form>
+        {lastResetPassword && (
+          <Alert
+            type="success"
+            showIcon
+            message="重置成功"
+            description={
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Text>
+                  新密码：
+                  <Text code copyable={false}>
+                    {lastResetPassword}
+                  </Text>
+                </Text>
+                <Button size="small" icon={<CopyOutlined />} onClick={copyPassword}>
+                  复制密码
+                </Button>
+              </Space>
+            }
+          />
+        )}
+      </Modal>
     </div>
   );
 }

@@ -3,6 +3,25 @@ import { api } from '../api';
 import { Card, Table, DatePicker, Select, Space, Tag, Statistic, Row, Col, message, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const CN_TZ = 'Asia/Shanghai';
+
+/** Audit timestamps are UTC (often naive in DB); always show China local time. */
+function formatAuditTime(v) {
+  if (!v) return '—';
+  // If backend sends no Z/offset, treat as UTC.
+  let parsed = dayjs.utc(v);
+  if (!parsed.isValid() && typeof v === 'string' && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(v)) {
+    parsed = dayjs.utc(`${v}Z`);
+  }
+  if (!parsed.isValid()) return String(v);
+  return parsed.tz(CN_TZ).format('HH:mm:ss');
+}
 
 const SOURCE_COLOR = {
   ios: 'blue',
@@ -58,10 +77,10 @@ export function AuditLogPage() {
 
   const columns = [
     {
-      title: '时间',
+      title: '时间 (北京)',
       dataIndex: 'created_at',
-      width: 170,
-      render: (v) => dayjs(v).format('HH:mm:ss'),
+      width: 100,
+      render: (v) => formatAuditTime(v),
     },
     {
       title: '用户',

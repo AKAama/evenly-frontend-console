@@ -6,6 +6,7 @@ import { PlatformUsersPage } from './pages/PlatformUsers';
 import { AdminUsersPage } from './pages/AdminUsers';
 import { AdminLedgersPage } from './pages/AdminLedgers';
 import { AccountSettingsPage } from './pages/AccountSettings';
+import { BadgeManagePage } from './pages/BadgeManage';
 import { api } from './api';
 import { Layout, Menu, Button, Space, Tag } from 'antd';
 import {
@@ -16,6 +17,7 @@ import {
   DatabaseOutlined,
   LogoutOutlined,
   SettingOutlined,
+  IdcardOutlined,
 } from '@ant-design/icons';
 
 const { Header, Content } = Layout;
@@ -98,6 +100,7 @@ function App() {
         ? [
             { key: 'all-ledgers', icon: <DatabaseOutlined />, label: '全部账本' },
             { key: 'all-users', icon: <UserOutlined />, label: '全部用户' },
+            { key: 'badges', icon: <IdcardOutlined />, label: '铭牌管理' },
             { key: 'audit', icon: <AuditOutlined />, label: '审计日志' },
             { key: 'platform-users', icon: <TeamOutlined />, label: '平台账号' },
           ]
@@ -108,6 +111,7 @@ function App() {
     let body = <Dashboard onLogout={handleLogout} hideChrome />;
     if (activeMenu === 'all-ledgers' && isAdmin) body = <AdminLedgersPage />;
     if (activeMenu === 'all-users' && isAdmin) body = <AdminUsersPage />;
+    if (activeMenu === 'badges' && isAdmin) body = <BadgeManagePage />;
     if (activeMenu === 'audit' && isAdmin) body = <AuditLogPage />;
     if (activeMenu === 'platform-users' && isAdmin) body = <PlatformUsersPage />;
     if (activeMenu === 'account') {
@@ -139,7 +143,7 @@ function App() {
               selectedKeys={[activeMenu]}
               items={menuItems}
               onClick={({ key }) => setActiveMenu(key)}
-              style={{ minWidth: 420, background: 'transparent', flex: 1 }}
+              style={{ minWidth: 520, background: 'transparent', flex: 1 }}
             />
           </div>
           <Space>

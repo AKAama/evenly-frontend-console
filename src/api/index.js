@@ -352,10 +352,11 @@ export const api = {
     );
   },
 
-  adminListUsers: async ({ q, account_kind, limit = 100, offset = 0 } = {}) => {
+  adminListUsers: async ({ q, account_kind, badge, limit = 100, offset = 0 } = {}) => {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (account_kind) params.set('account_kind', account_kind);
+    if (badge) params.set('badge', badge);
     params.set('limit', String(limit));
     params.set('offset', String(offset));
     return jsonRequest(`/admin/users?${params}`, {}, 'Failed to list users');
@@ -363,6 +364,56 @@ export const api = {
 
   adminGetUser: async (userId) => {
     return jsonRequest(`/admin/users/${userId}`, {}, 'Failed to get user');
+  },
+
+  adminListBadges: async () => {
+    return jsonRequest('/admin/badges', {}, 'Failed to list badges');
+  },
+
+  adminCreateBadge: async (payload) => {
+    return jsonRequest(
+      '/admin/badges',
+      { method: 'POST', body: JSON.stringify(payload) },
+      'Failed to create badge'
+    );
+  },
+
+  adminUpdateBadge: async (badgeId, payload) => {
+    return jsonRequest(
+      `/admin/badges/${badgeId}`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+      'Failed to update badge'
+    );
+  },
+
+  adminDeleteBadge: async (badgeId) => {
+    return jsonRequest(
+      `/admin/badges/${badgeId}`,
+      { method: 'DELETE' },
+      'Failed to delete badge'
+    );
+  },
+
+  adminSetUserBadge: async (userId, badge) => {
+    return jsonRequest(
+      `/admin/users/${userId}/badge`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ badge }),
+      },
+      'Failed to set badge'
+    );
+  },
+
+  adminResetUserPassword: async (userId, newPassword) => {
+    return jsonRequest(
+      `/admin/users/${userId}/reset-password`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ new_password: newPassword }),
+      },
+      'Failed to reset password'
+    );
   },
 
   adminListLedgers: async ({ q, limit = 100, offset = 0 } = {}) => {
