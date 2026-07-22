@@ -416,9 +416,21 @@ export const api = {
     );
   },
 
-  adminListLedgers: async ({ q, limit = 100, offset = 0 } = {}) => {
+  adminDeactivateUser: async (userId, ownerTransfers = []) => {
+    return jsonRequest(
+      `/admin/users/${userId}/deactivate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ confirm: true, owner_transfers: ownerTransfers }),
+      },
+      'Failed to deactivate user'
+    );
+  },
+
+  adminListLedgers: async ({ q, status, limit = 100, offset = 0 } = {}) => {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
+    if (status) params.set('status', status);
     params.set('limit', String(limit));
     params.set('offset', String(offset));
     return jsonRequest(`/admin/ledgers?${params}`, {}, 'Failed to list ledgers');

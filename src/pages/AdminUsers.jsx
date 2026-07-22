@@ -52,6 +52,7 @@ export function AdminUsersPage() {
   const [pwdSaving, setPwdSaving] = useState(false);
   const [lastResetPassword, setLastResetPassword] = useState(null);
   const [pwdForm] = Form.useForm();
+  const [deactivating, setDeactivating] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -146,6 +147,64 @@ export function AdminUsersPage() {
     }
   };
 
+  const confirmDeactivate = () => {
+    if (!detail?.user?.id) return;
+    if (detail.user.status === 'deactivated') {
+      message.info('该账号已注销');
+      return;
+    }
+    Modal.confirm({
+      title: '注销此账号？',
+      content: (
+        <div>
+          <p>
+            将注销 <strong>{detail.user.public_display_name || detail.user.display_name || detail.user.username}</strong>
+            。对方无法再登录；账单历史保留。
+          </p>
+          <p style={{ color: '#666', fontSize: 13 }}>
+            其作为 Owner 的账本：有其他成员则自动移交给最早加入者；仅自己则归档为悬空账本。
+          </p>
+        </div>
+      ),
+      okText: '确认注销',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setDeactivating(true);
+        try {
+          const res = await api.adminDeactivateUser(detail.user.id);
+          const lines = (res.transfers || []).map((t) => {
+            if (t.action === 'transfer' && t.new_owner) {
+              return `「${t.ledger_name}」→ ${t.new_owner.display_name}`;
+            }
+            if (t.action === 'archive') {
+              return `「${t.ledger_name}」已归档`;
+            }
+            return `「${t.ledger_name}」${t.action}`;
+          });
+          Modal.info({
+            title: '注销完成',
+            content: (
+              <div>
+                <p>请将下列结果告知相关成员（如有需要）：</p>
+                <ul>
+                  {lines.length ? lines.map((l) => <li key={l}>{l}</li>) : <li>无账本移交/归档</li>}
+                </ul>
+              </div>
+            ),
+          });
+          setDetailOpen(false);
+          load();
+        } catch (err) {
+          message.error(err.message || '注销失败');
+          throw err;
+        } finally {
+          setDeactivating(false);
+        }
+      },
+    });
+  };
+
   const columns = [
     {
       title: '用户',
@@ -153,18 +212,30 @@ export function AdminUsersPage() {
       render: (_, r) => (
         <div>
           <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>{r.display_name || r.username}</span>
-            {r.badge_label && (
+            <span>{r.public_display_name || r.display_name || r.username}</span>
+            {r.badge_label && r.status !== 'deactivated' && (
               <Tag color={fallbackColor(r.badge, r.badge_color)} style={{ marginInlineEnd: 0 }}>
                 {r.badge_label}
               </Tag>
             )}
+            {r.status === 'deactivated' && <Tag>已注销</Tag>}
           </div>
           <div style={{ color: '#888', fontSize: 12 }}>@{r.username}</div>
         </div>
       ),
     },
-    { title: '邮箱', dataIndex: 'email' },
+    {
+      title: '邮箱',
+      dataIndex: 'email',
+      render: (e, r) => (r.status === 'deactivated' ? <span style={{ color: '#bbb' }}>—</span> : e),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 90,
+      render: (s) =>
+        s === 'deactivated' ? <Tag>已注销</Tag> : <Tag color="green">正常</Tag>,
+    },
     {
       title: '类型',
       dataIndex: 'account_kind',
@@ -245,18 +316,38 @@ export function AdminUsersPage() {
         onClose={() => setDetailOpen(false)}
         extra={
           detail?.user ? (
-            <Button icon={<KeyOutlined />} onClick={openResetPassword}>
-              重置密码
-            </Button>
+            <Space>
+              {detail.user.status !== 'deactivated' && (
+                <Button danger loading={deactivating} onClick={confirmDeactivate}>
+                  注销账号
+                </Button>
+              )}
+              {detail.user.status !== 'deactivated' && (
+                <Button icon={<KeyOutlined />} onClick={openResetPassword}>
+                  重置密码
+                </Button>
+              )}
+            </Space>
           ) : null
         }
       >
         {detail?.user && (
           <>
             <Descriptions column={1} size="small" bordered>
-              <Descriptions.Item label="显示名">{detail.user.display_name || '—'}</Descriptions.Item>
+              <Descriptions.Item label="显示名">
+                {detail.user.public_display_name || detail.user.display_name || '—'}
+              </Descriptions.Item>
               <Descriptions.Item label="用户名">@{detail.user.username}</Descriptions.Item>
-              <Descriptions.Item label="邮箱">{detail.user.email}</Descriptions.Item>
+              <Descriptions.Item label="邮箱">
+                {detail.user.status === 'deactivated' ? '—' : detail.user.email}
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {detail.user.status === 'deactivated' ? (
+                  <Tag>已注销</Tag>
+                ) : (
+                  <Tag color="green">正常</Tag>
+                )}
+              </Descriptions.Item>
               <Descriptions.Item label="类型">
                 {detail.user.account_kind === 'platform' ? '平台账号' : '普通用户'}
               </Descriptions.Item>
@@ -283,14 +374,28 @@ export function AdminUsersPage() {
                 {detail.user.created_at ? new Date(detail.user.created_at).toLocaleString() : '—'}
               </Descriptions.Item>
             </Descriptions>
-            <div style={{ marginTop: 16 }}>
-              <Button block icon={<KeyOutlined />} onClick={openResetPassword}>
-                帮用户重置密码
-              </Button>
-              <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                不会发邮件。重置后请把新密码私下告知用户；对方可用用户名/邮箱 + 新密码登录。
-              </Text>
-            </div>
+            {detail.user.status !== 'deactivated' && (
+              <div style={{ marginTop: 16 }}>
+                <Button block icon={<KeyOutlined />} onClick={openResetPassword}>
+                  帮用户重置密码
+                </Button>
+                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                  不会发邮件。重置后请把新密码私下告知用户；对方可用用户名/邮箱 + 新密码登录。
+                </Text>
+                <Button
+                  block
+                  danger
+                  style={{ marginTop: 12 }}
+                  loading={deactivating}
+                  onClick={confirmDeactivate}
+                >
+                  注销此账号
+                </Button>
+                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                  软注销：账单保留；Owner 账本自动移交或归档。邮箱立即释放，用户名冷却 90 天。
+                </Text>
+              </div>
+            )}
             <h4 style={{ marginTop: 20 }}>拥有的账本</h4>
             <List
               size="small"

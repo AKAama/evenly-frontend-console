@@ -43,6 +43,8 @@ const ACTION_LABEL = {
   'expense.confirmed': '确认账单',
   'expense.rejected': '拒绝账单',
   'settlement.create': '记录转账',
+  'user.deactivate': '注销账号',
+  'user.deactivate_admin': '管理员注销账号',
 };
 
 export function AuditLogPage() {

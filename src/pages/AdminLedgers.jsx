@@ -14,6 +14,7 @@ import {
   Statistic,
   Row,
   Col,
+  Select,
 } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
@@ -22,6 +23,7 @@ export function AdminLedgersPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState('');
+  const [statusFilter, setStatusFilter] = useState(undefined);
   const [overview, setOverview] = useState(null);
   const [open, setOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -29,7 +31,11 @@ export function AdminLedgersPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.adminListLedgers({ q: q || undefined, limit: 200 });
+      const data = await api.adminListLedgers({
+        q: q || undefined,
+        status: statusFilter || undefined,
+        limit: 200,
+      });
       setRows(data.items || []);
       setTotal(data.total || 0);
     } catch (err) {
@@ -37,7 +43,7 @@ export function AdminLedgersPage() {
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, statusFilter]);
 
   useEffect(() => {
     load();
@@ -59,12 +65,23 @@ export function AdminLedgersPage() {
   const columns = [
     { title: '账本', dataIndex: 'name', render: (t) => <strong>{t}</strong> },
     {
+      title: '状态',
+      dataIndex: 'status',
+      width: 140,
+      render: (s, r) => (
+        <Space size={4} wrap>
+          {s === 'archived' ? <Tag>归档</Tag> : <Tag color="green">正常</Tag>}
+          {r.is_orphan ? <Tag color="orange">悬空</Tag> : null}
+        </Space>
+      ),
+    },
+    {
       title: '所有者',
       key: 'owner',
       render: (_, r) => (
         <div>
           <div>{r.owner_label || '—'}</div>
-          <div style={{ color: '#888', fontSize: 12 }}>{r.owner_email}</div>
+          <div style={{ color: '#888', fontSize: 12 }}>{r.owner_email || ''}</div>
         </div>
       ),
     },
@@ -104,7 +121,7 @@ export function AdminLedgersPage() {
       <Card
         title={`全部账本（${total}）`}
         extra={
-          <Space>
+          <Space wrap>
             <Input
               allowClear
               prefix={<SearchOutlined />}
@@ -113,6 +130,17 @@ export function AdminLedgersPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onPressEnter={load}
+            />
+            <Select
+              allowClear
+              placeholder="状态"
+              style={{ width: 140 }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: 'active', label: '正常' },
+                { value: 'archived', label: '归档' },
+              ]}
             />
             <Button icon={<ReloadOutlined />} onClick={load}>
               刷新
